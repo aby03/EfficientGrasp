@@ -37,7 +37,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from utils.compute_overlap import compute_overlap, wrapper_c_min_distances
+# from utils.compute_overlap import compute_overlap, wrapper_c_min_distances
 from utils.visualization import draw_detections, draw_annotations
 
 import tensorflow as tf
@@ -48,6 +48,9 @@ from tqdm import tqdm
 
 import cv2
 import progressbar
+
+from losses import grasp_loss
+
 assert(callable(progressbar.progressbar)), "Using wrong progressbar module, install 'progressbar2' instead."
 
 
@@ -80,7 +83,7 @@ def _compute_ap(recall, precision):
     return ap
 
 
-def _get_detections(generator, model, score_threshold = 0.05, max_detections = 100, save_path = None):
+def _get_detections(generator, model, save_path = None):
     """ Get the detections from the model using the generator.
 
     The result is a list of lists such that the size is:
@@ -95,67 +98,36 @@ def _get_detections(generator, model, score_threshold = 0.05, max_detections = 1
     # Returns
         A list of lists containing the detections for each image in the generator.
     """
-    all_detections = [[None for i in range(generator.num_classes()) if generator.has_label(i)] for j in range(generator.size())]
+
+    # all_detections = [[None for i in range(generator.num_classes()) if generator.has_label(i)] for j in range(generator.size())]
+
+    pred_grasps = [None for i in range(generator.size()) ]
+    true_grasps = [None for i in range(generator.size()) ]
 
     for i in progressbar.progressbar(range(generator.size()), prefix='Running network: '):
-        raw_image    = generator.load_image(i)
-        image, scale = generator.preprocess_image(raw_image.copy())
+        image_bt, output_bt    = generator[i]
+        true_grasp_bt = output_bt[0]
+        # raw_image    = generator.load_image(i)
+        # image, scale = generator.preprocess_image(raw_image.copy())
         # image, scale = generator.resize_image(image)
-        camera_matrix = generator.load_camera_matrix(i)
-        camera_input = generator.get_camera_parameter_input(camera_matrix, scale, generator.translation_scale_norm)
 
         # if keras.backend.image_data_format() == 'channels_first':
         #     image = image.transpose((2, 0, 1))
 
         # run network
-        boxes, scores, labels, rotations, translations = model.predict_on_batch([np.expand_dims(image, axis=0), np.expand_dims(camera_input, axis=0)])[:5]
-        
-        if tf.version.VERSION >= '2.0.0':
-            boxes = boxes.numpy()
-            scores = scores.numpy()
-            labels = labels.numpy()
-            rotations = rotations.numpy()
-            translations = translations.numpy()
+        pred_grasp_bt = model.predict_on_batch(image_bt)
 
-        # correct boxes for image scale
-        boxes /= scale
-        
-        #rescale rotations and translations
-        rotations *= math.pi
-        height, width, _ = raw_image.shape
+        pred_grasps[i*image_bt.shape[0]:(i+1)*image_bt.shape[0]] = pred_grasp_bt
+        true_grasps[i*image_bt.shape[0]:(i+1)*image_bt.shape[0]] = true_grasp_bt
 
-        # select indices which have a score above the threshold
-        indices = np.where(scores[0, :] > score_threshold)[0]
+    return pred_grasps, true_grasps
 
-        # select those scores
-        scores = scores[0][indices]
+        # if save_path is not None:
+        #     raw_image = cv2.cvtColor(raw_image, cv2.COLOR_RGB2BGR)
+        #     draw_annotations(raw_image, generator.load_annotations(i), class_to_bbox_3D = generator.get_bbox_3d_dict(), camera_matrix = generator.load_camera_matrix(i), label_to_name=generator.label_to_name)
+        #     draw_detections(raw_image, image_boxes, image_scores, image_labels, image_rotations, image_translations, class_to_bbox_3D = generator.get_bbox_3d_dict(), camera_matrix = generator.load_camera_matrix(i), label_to_name=generator.label_to_name)
 
-        # find the order with which to sort the scores
-        scores_sort = np.argsort(-scores)[:max_detections]
-
-        # select detections
-        image_boxes      = boxes[0, indices[scores_sort], :]
-        image_rotations  = rotations[0, indices[scores_sort], :]
-        image_translations = translations[0, indices[scores_sort], :]
-        image_scores     = scores[scores_sort]
-        image_labels     = labels[0, indices[scores_sort]]
-        image_detections = np.concatenate([image_boxes, np.expand_dims(image_scores, axis=1), np.expand_dims(image_labels, axis=1)], axis=1)
-
-        if save_path is not None:
-            raw_image = cv2.cvtColor(raw_image, cv2.COLOR_RGB2BGR)
-            draw_annotations(raw_image, generator.load_annotations(i), class_to_bbox_3D = generator.get_bbox_3d_dict(), camera_matrix = generator.load_camera_matrix(i), label_to_name=generator.label_to_name)
-            draw_detections(raw_image, image_boxes, image_scores, image_labels, image_rotations, image_translations, class_to_bbox_3D = generator.get_bbox_3d_dict(), camera_matrix = generator.load_camera_matrix(i), label_to_name=generator.label_to_name)
-
-            cv2.imwrite(os.path.join(save_path, '{}.png'.format(i)), raw_image)
-
-        # copy detections to all_detections
-        for label in range(generator.num_classes()):
-            if not generator.has_label(label):
-                continue
-
-            all_detections[i][label] = (image_detections[image_detections[:, -1] == label, :-1], image_rotations[image_detections[:, -1] == label, :], image_translations[image_detections[:, -1] == label, :])
-
-    return all_detections
+        #     cv2.imwrite(os.path.join(save_path, '{}.png'.format(i)), raw_image)
 
 
 def _get_annotations(generator):
@@ -384,193 +356,68 @@ def evaluate(
         Several dictionaries mapping class names to the computed metrics.
     """
     # gather all detections and annotations
-    all_detections     = _get_detections(generator, model, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
-    all_annotations    = _get_annotations(generator)
-    all_3d_models      = generator.get_models_3d_points_dict()
-    all_3d_model_diameters = generator.get_objects_diameter_dict()
-    average_precisions = {}
-    add_metric = {}
-    add_s_metric = {}
-    metric_5cm_5degree = {}
-    translation_diff_metric = {}
-    rotation_diff_metric = {}
-    metric_2d_projection = {}
-    mixed_add_and_add_s_metric = {}
-    average_point_distance_error_metric = {}
-    average_sym_point_distance_error_metric = {}
-    mixed_average_point_distance_error_metric = {}
+    pred_grasps, true_grasps = _get_detections(generator, model, save_path=save_path)
 
-    # process detections and annotations
-    for label in range(generator.num_classes()):
-        if not generator.has_label(label):
-            continue
+    # Grasp Loss
+    loss_v = []
+    min_loss_index = []
+    # For an image
+    for j in range(len(true_grasps)):
+        min_loss = float('inf')
+        min_index = 0
+        # For a grasp
+        for i in range(len(true_grasps[j])):
+            cur_loss = grasp_loss(true_grasps[j][i], pred_grasps[j])
+            if cur_loss < min_loss:
+                min_loss = cur_loss
+                min_index = i
+        loss_v.append(min_loss)
+        min_loss_index.append(i)
+    avg_grasp_loss = sum(loss_v) / len(loss_v)
 
-        false_positives = np.zeros((0,))
-        true_positives  = np.zeros((0,))
-        scores          = np.zeros((0,))
-        num_annotations = 0.0
-        true_positives_add  = np.zeros((0,))
-        true_positives_add_s  = np.zeros((0,))
-        model_3d_points = all_3d_models[label]
-        model_3d_diameter = all_3d_model_diameters[label]
-        true_positives_5cm_5degree  = np.zeros((0,))
-        translation_diffs = np.zeros((0,))
-        rotation_diffs = np.zeros((0,))
-        true_positives_2d_projection  = np.zeros((0,))
-        point_distance_errors = np.zeros((0,))
-        point_sym_distance_errors = np.zeros((0,))
-
-        for i in tqdm(range(generator.size())):
-            detections           = all_detections[i][label][0]
-            detections_rotations = all_detections[i][label][1]
-            detections_translations = all_detections[i][label][2]
-            annotations          = all_annotations[i][label][0]
-            annotations_rotations = all_annotations[i][label][1]
-            annotations_translations = all_annotations[i][label][2]
-            num_annotations     += annotations.shape[0]
-            detected_annotations = []
-
-            for d, d_rotation, d_translation in zip(detections, detections_rotations, detections_translations):
-                scores = np.append(scores, d[4])
-
-                if annotations.shape[0] == 0:
-                    false_positives = np.append(false_positives, 1)
-                    true_positives  = np.append(true_positives, 0)
-                    continue
-
-                overlaps            = compute_overlap(np.expand_dims(d, axis=0), annotations)
-                assigned_annotation = np.argmax(overlaps, axis=1)
-                max_overlap         = overlaps[0, assigned_annotation]
-                assigned_rotation = annotations_rotations[assigned_annotation, :3]
-                assigned_translation = annotations_translations[assigned_annotation, :]
-
-                if max_overlap >= iou_threshold and assigned_annotation not in detected_annotations:
-                    false_positives = np.append(false_positives, 0)
-                    true_positives  = np.append(true_positives, 1)
-                    detected_annotations.append(assigned_annotation)
-                    #correct 2d object detection => check if the 6d pose is also correct
-                    is_correct_6d_pose_add, mean_distances_add, transformed_points_gt = check_6d_pose_add(model_3d_points,
-                                                                                                        model_3d_diameter,
-                                                                                                        rotation_gt = generator.axis_angle_to_rotation_mat(assigned_rotation),
-                                                                                                        translation_gt = np.squeeze(assigned_translation),
-                                                                                                        rotation_pred = generator.axis_angle_to_rotation_mat(d_rotation),
-                                                                                                        translation_pred = d_translation,
-                                                                                                        diameter_threshold = diameter_threshold)
-                    
-                    is_correct_6d_pose_add_s, mean_distances_add_s = check_6d_pose_add_s(model_3d_points,
-                                                                                       model_3d_diameter,
-                                                                                       rotation_gt = generator.axis_angle_to_rotation_mat(assigned_rotation),
-                                                                                       translation_gt = np.squeeze(assigned_translation),
-                                                                                       rotation_pred = generator.axis_angle_to_rotation_mat(d_rotation),
-                                                                                       translation_pred = d_translation,
-                                                                                       diameter_threshold = diameter_threshold)
-                    
-                    is_correct_6d_pose_5cm_5degree, translation_distance, rotation_distance = check_6d_pose_5cm_5degree(rotation_gt = generator.axis_angle_to_rotation_mat(assigned_rotation),
-                                                                                                                         translation_gt = np.squeeze(assigned_translation),
-                                                                                                                         rotation_pred = generator.axis_angle_to_rotation_mat(d_rotation),
-                                                                                                                         translation_pred = d_translation)
-                    
-                    is_correct_2d_projection = check_6d_pose_2d_reprojection(model_3d_points,
-                                                                             rotation_gt = generator.axis_angle_to_rotation_mat(assigned_rotation),
-                                                                             translation_gt = np.squeeze(assigned_translation),
-                                                                             rotation_pred = generator.axis_angle_to_rotation_mat(d_rotation),
-                                                                             translation_pred = d_translation,
-                                                                             camera_matrix = generator.load_camera_matrix(i),
-                                                                             pixel_threshold = 5.0)
-                    
-                    # #draw transformed gt points in image to test the transformation
-                    # test_draw(generator.load_image(i), generator.load_camera_matrix(i), transformed_points_gt)
-                    
-                    if is_correct_6d_pose_add:
-                        true_positives_add  = np.append(true_positives_add, 1)
-                    if is_correct_6d_pose_add_s:
-                        true_positives_add_s  = np.append(true_positives_add_s, 1)
-                    if is_correct_6d_pose_5cm_5degree:
-                        true_positives_5cm_5degree = np.append(true_positives_5cm_5degree, 1)
-                    if is_correct_2d_projection:
-                        true_positives_2d_projection = np.append(true_positives_2d_projection, 1)
-                        
-                    translation_diffs = np.append(translation_diffs, translation_distance)
-                    rotation_diffs = np.append(rotation_diffs, rotation_distance)
-                    point_distance_errors = np.append(point_distance_errors, mean_distances_add)
-                    point_sym_distance_errors = np.append(point_sym_distance_errors, mean_distances_add_s)
-                else:
-                    false_positives = np.append(false_positives, 1)
-                    true_positives  = np.append(true_positives, 0)
-
-        # no annotations -> AP for this class is 0 (is this correct?)
-        if num_annotations == 0:
-            average_precisions[label] = 0, 0
-            continue
-
-        # sort by score
-        indices         = np.argsort(-scores)
-        false_positives = false_positives[indices]
-        true_positives  = true_positives[indices]
-
-        # compute false positives and true positives
-        false_positives = np.cumsum(false_positives)
-        true_positives  = np.cumsum(true_positives)
-
-        # compute recall and precision
-        recall    = true_positives / num_annotations
-        precision = true_positives / np.maximum(true_positives + false_positives, np.finfo(np.float64).eps)
-
-        # compute average precision
-        average_precision  = _compute_ap(recall, precision)
-        average_precisions[label] = average_precision, num_annotations
+    # IoU Angle Diff
+    correct_grasp_count = 0
+    iou_list = []
+    angle_diff_list = []
+    for j in range(len(true_grasps)):
+        index = min_loss_index[j]
+        bbox_true = grasp_to_bbox( *true_grasps[j][index] )
+        bbox_pred = grasp_to_bbox( *pred_grasps[j] )
         
-        #compute add accuracy
-        add_accuracy = np.sum(true_positives_add) / num_annotations
-        add_metric[label] = add_accuracy, num_annotations
-        
-        #compute add-s accuracy
-        add_s_accuracy = np.sum(true_positives_add_s) / num_annotations
-        add_s_metric[label] = add_s_accuracy, num_annotations
-        
-        #compute 5cm 5degree accuracy
-        accuracy_5cm_5degree = np.sum(true_positives_5cm_5degree) / num_annotations
-        metric_5cm_5degree[label] = accuracy_5cm_5degree, num_annotations
-        
-        #compute the mean and std of the translation- and rotation differences
-        mean_translations = np.mean(translation_diffs)
-        std_translations = np.std(translation_diffs)
-        translation_diff_metric[label] = mean_translations, std_translations
-        
-        mean_rotations = np.mean(rotation_diffs)
-        std_rotations = np.std(rotation_diffs)
-        rotation_diff_metric[label] = mean_rotations, std_rotations
-        
-        #compute 2d projection accuracy
-        accuracy_2d_projection = np.sum(true_positives_2d_projection) / num_annotations
-        metric_2d_projection[label] = accuracy_2d_projection, num_annotations
-        
-        #compute the mean and std of the transformed point errors
-        mean_point_distance_errors = np.mean(point_distance_errors)
-        std_point_distance_errors = np.std(point_distance_errors)
-        average_point_distance_error_metric[label] = mean_point_distance_errors, std_point_distance_errors
-        
-        #compute the mean and std of the symmetric transformed point errors
-        mean_point_sym_distance_errors = np.mean(point_sym_distance_errors)
-        std_point_sym_distance_errors = np.std(point_sym_distance_errors)
-        average_sym_point_distance_error_metric[label] = mean_point_sym_distance_errors, std_point_sym_distance_errors
-        
-    
-    #fill in the add values for asymmetric objects and add-s for symmetric objects
-    for label, add_tuple in add_metric.items():
-        add_s_tuple = add_s_metric[label]
-        if generator.class_labels_to_object_ids[label] in generator.symmetric_objects:
-            mixed_add_and_add_s_metric[label] = add_s_tuple
+        #IoU
+        try:
+            p1 = Polygon([bbox_true[0], bbox_true[1], bbox_true[2], bbox_true[3], bbox_true[0]])
+            p2 = Polygon([bbox_pred[0], bbox_pred[1], bbox_pred[2], bbox_pred[3], bbox_pred[0]])
+            iou = p1.intersection(p2).area / (p1.area +p2.area -p1.intersection(p2).area)
+            iou_list.append(iou)
+        except Exception as e: 
+            print('IoU ERROR', e)
+            print('Bbox pred:', bbox_pred)
+            print('pred grasp:', pred_grasps[j])
+            print('Bbox true:', bbox_true)
+        #Angle Diff
+        true_sin = true_grasps[j][index][2]
+        true_cos = true_grasps[j][index][3]
+        if true_cos != 0:
+            true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
         else:
-            mixed_add_and_add_s_metric[label] = add_tuple
-            
-    #fill in the average point distance values for asymmetric objects and the corresponding average sym point distances for symmetric objects
-    for label, asym_tuple in average_point_distance_error_metric.items():
-        sym_tuple = average_sym_point_distance_error_metric[label]
-        if generator.class_labels_to_object_ids[label] in generator.symmetric_objects:
-            mixed_average_point_distance_error_metric[label] = sym_tuple
+            true_angle = 90
+        pred_sin = pred_grasps[j][2]
+        pred_cos = pred_grasps[j][3]
+        if pred_cos != 0:
+            pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
         else:
-            mixed_average_point_distance_error_metric[label] = asym_tuple
+            pred_angle = 90
+        angle_diff = np.abs(pred_angle - true_angle)
+        angle_diff = min(angle_diff, 180.0 - angle_diff)
+        angle_diff_list.append(angle_diff)
         
+        if angle_diff < 30. and iou >= 0.25:
+            correct_grasp_count += 1
+            # print('image: %d | duration = %.2f | count = %d | iou = %.2f | angle_difference = %.2f' %(step, duration, count, iou, angle_diff))
+    grasp_accuracy = correct_grasp_count / len(true_grasps)
+    avg_iou = sum(iou_list) / len(true_grasps)
+    avg_angle_diff = sum(angle_diff_list) / len(true_grasps)
 
-    return average_precisions, add_metric, add_s_metric, metric_5cm_5degree, translation_diff_metric, rotation_diff_metric, metric_2d_projection, mixed_add_and_add_s_metric, average_point_distance_error_metric, average_sym_point_distance_error_metric, mixed_average_point_distance_error_metric
+    return avg_grasp_loss, grasp_accuracy, avg_iou, avg_angle_diff
+

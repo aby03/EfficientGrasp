@@ -39,8 +39,157 @@ limitations under the License.
 
 import tensorflow as tf
 from tensorflow import keras
-from eval.common import evaluate
+import progressbar
+import numpy as np
+# from eval.common import evaluate
+import math
+import sys
+sys.path.append(".")
+from generators.cornell import *
+from losses import grasp_loss
 
+from shapely import speedups
+speedups.disable()
+from shapely.geometry import Polygon # For IoU
+
+
+def _get_detections(generator, model, save_path = None):
+    """ Get the detections from the model using the generator.
+
+    The result is a list of lists such that the size is:
+        all_detections[num_images][num_classes] = (boxes+classes = detections[num_detections, 4 + num_classes], rotations = detections[num_detections, num_rotation_parameters], translations = detections[num_detections, num_translation_parameters)
+
+    # Arguments
+        generator       : The generator used to run images through the model.
+        model           : The model to run on the images.
+        score_threshold : The score confidence threshold to use.
+        max_detections  : The maximum number of detections to use per image.
+        save_path       : The path to save the images with visualized detections to.
+    # Returns
+        A list of lists containing the detections for each image in the generator.
+    """
+
+    # all_detections = [[None for i in range(generator.num_classes()) if generator.has_label(i)] for j in range(generator.size())]
+
+    pred_grasps = [None for i in range(generator.size()) ]
+    true_grasps = [None for i in range(generator.size()) ]
+
+    for i in progressbar.progressbar(range(generator.size()), prefix='Running network: '):
+        image_bt, output_bt    = generator[i]
+        true_grasp_bt = output_bt[0]
+        # raw_image    = generator.load_image(i)
+        # image, scale = generator.preprocess_image(raw_image.copy())
+        # image, scale = generator.resize_image(image)
+
+        # if keras.backend.image_data_format() == 'channels_first':
+        #     image = image.transpose((2, 0, 1))
+
+        # run network
+        pred_grasp_bt = model.predict_on_batch(image_bt)
+
+        pred_grasps[i*image_bt.shape[0]:(i+1)*image_bt.shape[0]] = pred_grasp_bt
+        true_grasps[i*image_bt.shape[0]:(i+1)*image_bt.shape[0]] = true_grasp_bt
+
+    return pred_grasps, true_grasps
+
+        # if save_path is not None:
+        #     raw_image = cv2.cvtColor(raw_image, cv2.COLOR_RGB2BGR)
+        #     draw_annotations(raw_image, generator.load_annotations(i), class_to_bbox_3D = generator.get_bbox_3d_dict(), camera_matrix = generator.load_camera_matrix(i), label_to_name=generator.label_to_name)
+        #     draw_detections(raw_image, image_boxes, image_scores, image_labels, image_rotations, image_translations, class_to_bbox_3D = generator.get_bbox_3d_dict(), camera_matrix = generator.load_camera_matrix(i), label_to_name=generator.label_to_name)
+
+        #     cv2.imwrite(os.path.join(save_path, '{}.png'.format(i)), raw_image)
+
+def evaluate(
+    generator,
+    model,
+    iou_threshold = 0.5,
+    score_threshold = 0.05,
+    max_detections = 100,
+    save_path = None,
+    diameter_threshold = 0.1,
+):
+    """ Evaluate a given dataset using a given model.
+
+    # Arguments
+        generator: The generator that represents the dataset to evaluate.
+        model: The model to evaluate.
+        iou_threshold: The threshold used to consider when a detection is positive or negative.
+        score_threshold: The score confidence threshold to use for detections.
+        max_detections: The maximum number of detections to use per image.
+        save_path: The path to save images with visualized detections to.
+        diameter_threshold: Threshold relative to the object's diameter when a prdicted 6D pose in considered to be correct
+    # Returns
+        Several dictionaries mapping class names to the computed metrics.
+    """
+    # gather all detections and annotations
+    pred_grasps, true_grasps = _get_detections(generator, model, save_path=save_path)
+
+    # Grasp Loss
+    loss_v = []
+    min_loss_index = []
+    # For an image
+    for j in range(len(true_grasps)):
+        min_loss = float('inf')
+        min_index = 0
+        # For a grasp
+        for i in range(len(true_grasps[j])):
+            cur_loss = grasp_loss(true_grasps[j][i], pred_grasps[j])
+            if cur_loss < min_loss:
+                min_loss = cur_loss
+                min_index = i
+        loss_v.append(min_loss)
+        min_loss_index.append(i)
+    avg_grasp_loss = sum(loss_v) / len(loss_v)
+
+    # IoU Angle Diff
+    correct_grasp_count = 0
+    iou_list = []
+    angle_diff_list = []
+    for j in range(len(true_grasps)):
+        index = min_loss_index[j]
+        bbox_true = grasp_to_bbox( *true_grasps[j][index] )
+        bbox_pred = grasp_to_bbox( *pred_grasps[j] )
+        
+        #IoU
+        try:
+            p1 = Polygon([bbox_true[0], bbox_true[1], bbox_true[2], bbox_true[3], bbox_true[0]])
+            p2 = Polygon([bbox_pred[0], bbox_pred[1], bbox_pred[2], bbox_pred[3], bbox_pred[0]])
+            iou = p1.intersection(p2).area / (p1.area +p2.area -p1.intersection(p2).area)
+            iou_list.append(iou)
+        except Exception as e: 
+            print('IoU ERROR', e)
+            print('Bbox pred:', bbox_pred)
+            print('pred grasp:', pred_grasps[j])
+            print('Bbox true:', bbox_true)
+        
+        #Angle Diff
+        # true_sin = true_grasps[j][index][2]
+        # true_cos = true_grasps[j][index][3]
+        # if true_cos != 0:
+        #     true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
+        # else:
+        #     true_angle = 90
+        # pred_sin = pred_grasps[j][2]
+        # pred_cos = pred_grasps[j][3]
+        # if pred_cos != 0:
+        #     pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
+        # else:
+        #     pred_angle = 90
+        true_angle = np.arctan(true_grasps[j][index][2])
+        pred_angle = np.arctan(pred_grasps[j][2])
+        
+        angle_diff = np.abs(pred_angle - true_angle)
+        angle_diff = min(angle_diff, 180.0 - angle_diff)
+        angle_diff_list.append(angle_diff)
+        
+        if angle_diff < 30. and iou >= 0.25:
+            correct_grasp_count += 1
+            # print('image: %d | duration = %.2f | count = %d | iou = %.2f | angle_difference = %.2f' %(step, duration, count, iou, angle_diff))
+    grasp_accuracy = correct_grasp_count / len(true_grasps)
+    avg_iou = sum(iou_list) / len(true_grasps)
+    avg_angle_diff = sum(angle_diff_list) / len(true_grasps)
+
+    return avg_grasp_loss, grasp_accuracy, avg_iou, avg_angle_diff
 
 class Evaluate(keras.callbacks.Callback):
     """ Evaluation callback for arbitrary datasets.
@@ -90,271 +239,46 @@ class Evaluate(keras.callbacks.Callback):
         logs = logs or {}
 
         # run evaluation
-        average_precisions, add_metric, add_s_metric, metric_5cm_5degree, translation_diff_metric, rotation_diff_metric, metric_2d_projection, mixed_add_and_add_s_metric, average_point_distance_error_metric, average_sym_point_distance_error_metric, mixed_average_point_distance_error_metric = evaluate(
+        avg_grasp_loss, grasp_accuracy, avg_iou, avg_angle_diff = evaluate(
             self.generator,
             self.active_model,
-            iou_threshold=self.iou_threshold,
-            score_threshold=self.score_threshold,
-            max_detections=self.max_detections,
-            save_path=self.save_path,
-            diameter_threshold = self.diameter_threshold
+            save_path=self.save_path
         )
-
-        # compute per class average precision
-        total_instances = []
-        precisions = []
-        for label, (average_precision, num_annotations ) in average_precisions.items():
-            if self.verbose == 1:
-                print('{:.0f} instances of class'.format(num_annotations),
-                      self.generator.label_to_name(label), 'with average precision: {:.4f}'.format(average_precision))
-            total_instances.append(num_annotations)
-            precisions.append(average_precision)
-        if self.weighted_average:
-            self.mean_ap = sum([a * b for a, b in zip(total_instances, precisions)]) / sum(total_instances)
-        else:
-            self.mean_ap = sum(precisions) / sum(x > 0 for x in total_instances)
-            
-        # compute per class ADD Accuracy
-        total_instances_add = []
-        add_accuracys = []
-        for label, (add_acc, num_annotations) in add_metric.items():
-            if self.verbose == 1:
-                print('{:.0f} instances of class'.format(num_annotations),
-                      self.generator.label_to_name(label), 'with ADD accuracy: {:.4f}'.format(add_acc))
-            total_instances_add.append(num_annotations)
-            add_accuracys.append(add_acc)
-        if self.weighted_average:
-            self.mean_add = sum([a * b for a, b in zip(total_instances_add, add_accuracys)]) / sum(total_instances_add)
-        else:
-            self.mean_add = sum(add_accuracys) / sum(x > 0 for x in total_instances_add)
-            
-        #same for add-s metric
-        total_instances_add_s = []
-        add_s_accuracys = []
-        for label, (add_s_acc, num_annotations) in add_s_metric.items():
-            if self.verbose == 1:
-                print('{:.0f} instances of class'.format(num_annotations),
-                      self.generator.label_to_name(label), 'with ADD-S-Accuracy: {:.4f}'.format(add_s_acc))
-            total_instances_add_s.append(num_annotations)
-            add_s_accuracys.append(add_s_acc)
-        if self.weighted_average:
-            self.mean_add_s = sum([a * b for a, b in zip(total_instances_add_s, add_s_accuracys)]) / sum(total_instances_add_s)
-        else:
-            self.mean_add_s = sum(add_s_accuracys) / sum(x > 0 for x in total_instances_add_s)
-            
-        #same for 5cm 5degree metric
-        total_instances_5cm_5degree = []
-        accuracys_5cm_5degree = []
-        for label, (acc_5cm_5_degree, num_annotations) in metric_5cm_5degree.items():
-            if self.verbose == 1:
-                print('{:.0f} instances of class'.format(num_annotations),
-                      self.generator.label_to_name(label), 'with 5cm-5degree-Accuracy: {:.4f}'.format(acc_5cm_5_degree))
-            total_instances_5cm_5degree.append(num_annotations)
-            accuracys_5cm_5degree.append(acc_5cm_5_degree)
-        if self.weighted_average:
-            self.mean_5cm_5degree = sum([a * b for a, b in zip(total_instances_5cm_5degree, accuracys_5cm_5degree)]) / sum(total_instances_5cm_5degree)
-        else:
-            self.mean_5cm_5degree = sum(accuracys_5cm_5degree) / sum(x > 0 for x in total_instances_5cm_5degree)
-            
-        #same for translation diffs
-        translation_diffs_mean = []
-        translation_diffs_std = []
-        for label, (t_mean, t_std) in translation_diff_metric.items():
-            print('class', self.generator.label_to_name(label), 'with Translation Differences in mm: Mean: {:.4f} and Std: {:.4f}'.format(t_mean, t_std))
-            translation_diffs_mean.append(t_mean)
-            translation_diffs_std.append(t_std)
-        self.mean_translation_mean = sum(translation_diffs_mean) / len(translation_diffs_mean)
-        self.mean_translation_std = sum(translation_diffs_std) / len(translation_diffs_std)
-            
-        #same for rotation diffs
-        rotation_diffs_mean = []
-        rotation_diffs_std = []
-        for label, (r_mean, r_std) in rotation_diff_metric.items():
-            if self.verbose == 1:
-                print('class', self.generator.label_to_name(label), 'with Rotation Differences in degree: Mean: {:.4f} and Std: {:.4f}'.format(r_mean, r_std))
-            rotation_diffs_mean.append(r_mean)
-            rotation_diffs_std.append(r_std)
-        self.mean_rotation_mean = sum(rotation_diffs_mean) / len(rotation_diffs_mean)
-        self.mean_rotation_std = sum(rotation_diffs_std) / len(rotation_diffs_std)
-            
-        #same for 2d projection metric
-        total_instances_2d_projection = []
-        accuracys_2d_projection = []
-        for label, (acc_2d_projection, num_annotations) in metric_2d_projection.items():
-            if self.verbose == 1:
-                print('{:.0f} instances of class'.format(num_annotations),
-                      self.generator.label_to_name(label), 'with 2d-projection-Accuracy: {:.4f}'.format(acc_2d_projection))
-            total_instances_2d_projection.append(num_annotations)
-            accuracys_2d_projection.append(acc_2d_projection)
-        if self.weighted_average:
-            self.mean_2d_projection = sum([a * b for a, b in zip(total_instances_2d_projection, accuracys_2d_projection)]) / sum(total_instances_2d_projection)
-        else:
-            self.mean_2d_projection = sum(accuracys_2d_projection) / sum(x > 0 for x in total_instances_2d_projection)
-            
-        #same for mixed_add_and_add_s_metric
-        total_instances_mixed_add_and_add_s_metric = []
-        accuracys_mixed_add_and_add_s_metric = []
-        for label, (acc_mixed_add_and_add_s_metric, num_annotations) in mixed_add_and_add_s_metric.items():
-            if self.verbose == 1:
-                print('{:.0f} instances of class'.format(num_annotations),
-                      self.generator.label_to_name(label), 'with ADD(-S)-Accuracy: {:.4f}'.format(acc_mixed_add_and_add_s_metric))
-            total_instances_mixed_add_and_add_s_metric.append(num_annotations)
-            accuracys_mixed_add_and_add_s_metric.append(acc_mixed_add_and_add_s_metric)
-        if self.weighted_average:
-            self.mean_mixed_add_and_add_s_metric = sum([a * b for a, b in zip(total_instances_mixed_add_and_add_s_metric, accuracys_mixed_add_and_add_s_metric)]) / sum(total_instances_mixed_add_and_add_s_metric)
-        else:
-            self.mean_mixed_add_and_add_s_metric = sum(accuracys_mixed_add_and_add_s_metric) / sum(x > 0 for x in total_instances_mixed_add_and_add_s_metric)
-            
-        #same for average transformed point distances
-        transformed_diffs_mean = []
-        transformed_diffs_std = []
-        for label, (t_mean, t_std) in average_point_distance_error_metric.items():
-            print('class', self.generator.label_to_name(label), 'with Transformed Point Distances in mm: Mean: {:.4f} and Std: {:.4f}'.format(t_mean, t_std))
-            transformed_diffs_mean.append(t_mean)
-            transformed_diffs_std.append(t_std)
-        self.mean_transformed_mean = sum(transformed_diffs_mean) / len(transformed_diffs_mean)
-        self.mean_transformed_std = sum(transformed_diffs_std) / len(transformed_diffs_std)
         
-        #same for average symmetric transformed point distances
-        transformed_sym_diffs_mean = []
-        transformed_sym_diffs_std = []
-        for label, (t_mean, t_std) in average_sym_point_distance_error_metric.items():
-            print('class', self.generator.label_to_name(label), 'with Transformed Symmetric Point Distances in mm: Mean: {:.4f} and Std: {:.4f}'.format(t_mean, t_std))
-            transformed_sym_diffs_mean.append(t_mean)
-            transformed_sym_diffs_std.append(t_std)
-        self.mean_transformed_sym_mean = sum(transformed_sym_diffs_mean) / len(transformed_sym_diffs_mean)
-        self.mean_transformed_sym_std = sum(transformed_sym_diffs_std) / len(transformed_sym_diffs_std)
-        
-        #same for mixed average transformed point distances for symmetric and asymmetric objects
-        mixed_transformed_diffs_mean = []
-        mixed_transformed_diffs_std = []
-        for label, (t_mean, t_std) in mixed_average_point_distance_error_metric.items():
-            print('class', self.generator.label_to_name(label), 'with Mixed Transformed Point Distances in mm: Mean: {:.4f} and Std: {:.4f}'.format(t_mean, t_std))
-            mixed_transformed_diffs_mean.append(t_mean)
-            mixed_transformed_diffs_std.append(t_std)
-        self.mean_mixed_transformed_mean = sum(mixed_transformed_diffs_mean) / len(mixed_transformed_diffs_mean)
-        self.mean_mixed_transformed_std = sum(mixed_transformed_diffs_std) / len(mixed_transformed_diffs_std)
-
         if self.tensorboard is not None:
             if tf.version.VERSION < '2.0.0' and self.tensorboard.writer is not None:
                 summary = tf.Summary()
-                #mAP
-                summary_value_map = summary.value.add()
-                summary_value_map.simple_value = self.mean_ap
-                summary_value_map.tag = "mAP"
-                #ADD
-                summary_value_add = summary.value.add()
-                summary_value_add.simple_value = self.mean_add
-                summary_value_add.tag = "ADD"
-                #ADD-S
-                summary_value_add_s = summary.value.add()
-                summary_value_add_s.simple_value = self.mean_add_s
-                summary_value_add_s.tag = "ADD-S"
-                #5cm 5degree
-                summary_value_5cm_5degree = summary.value.add()
-                summary_value_5cm_5degree.simple_value = self.mean_5cm_5degree
-                summary_value_5cm_5degree.tag = "5cm_5degree"
-                #translation
-                summary_value_translation_mean = summary.value.add()
-                summary_value_translation_mean.simple_value = self.mean_translation_mean
-                summary_value_translation_mean.tag = "TranslationErrorMean_in_mm"
-                summary_value_translation_std = summary.value.add()
-                summary_value_translation_std.simple_value = self.mean_translation_std
-                summary_value_translation_std.tag = "TranslationErrorStd_in_mm"
-                #rotation
-                summary_value_rotation_mean = summary.value.add()
-                summary_value_rotation_mean.simple_value = self.mean_rotation_mean
-                summary_value_rotation_mean.tag = "RotationErrorMean_in_degree"
-                summary_value_rotation_std = summary.value.add()
-                summary_value_rotation_std.simple_value = self.mean_rotation_std
-                summary_value_rotation_std.tag = "RotationErrorStd_in_degree"
-                #2d projection
-                summary_value_2d_projection = summary.value.add()
-                summary_value_2d_projection.simple_value = self.mean_2d_projection
-                summary_value_2d_projection.tag = "2D_Projection"
-                #summed translation and rotation errors for lr scheduling
-                summary_value_summed_error = summary.value.add()
-                summary_value_summed_error.simple_value = self.mean_translation_mean + self.mean_translation_std + self.mean_rotation_mean + self.mean_rotation_std
-                summary_value_summed_error.tag = "Summed_Translation_Rotation_Error"
-                #ADD(-S)
-                summary_value_mixed_add_and_add_s_metric = summary.value.add()
-                summary_value_mixed_add_and_add_s_metric.simple_value = self.mean_mixed_add_and_add_s_metric
-                summary_value_mixed_add_and_add_s_metric.tag = "ADD(-S)"
-                #average point distances
-                summary_value_transformed_sym_mean = summary.value.add()
-                summary_value_transformed_sym_mean.simple_value = self.mean_transformed_sym_mean
-                summary_value_transformed_sym_mean.tag = "AverageSymmetricPointDistanceMean_in_mm"
-                summary_value_transformed_sym_std = summary.value.add()
-                summary_value_transformed_sym_std.simple_value = self.mean_transformed_sym_std
-                summary_value_transformed_sym_std.tag = "AverageSymmetricPointDistanceStd_in_mm"
-                #average point distances
-                summary_value_transformed_mean = summary.value.add()
-                summary_value_transformed_mean.simple_value = self.mean_transformed_mean
-                summary_value_transformed_mean.tag = "AveragePointDistanceMean_in_mm"
-                summary_value_transformed_std = summary.value.add()
-                summary_value_transformed_std.simple_value = self.mean_transformed_std
-                summary_value_transformed_std.tag = "AveragePointDistanceStd_in_mm"
-                #average point distances
-                summary_value_mixed_transformed_mean = summary.value.add()
-                summary_value_mixed_transformed_mean.simple_value = self.mean_mixed_transformed_mean
-                summary_value_mixed_transformed_mean.tag = "MixedAveragePointDistanceMean_in_mm"
-                summary_value_mixed_transformed_std = summary.value.add()
-                summary_value_mixed_transformed_std.simple_value = self.mean_mixed_transformed_std
-                summary_value_mixed_transformed_std.tag = "MixedAveragePointDistanceStd_in_mm"
-                
+                # Grasp Loss
+                summary_value_avg_grasp_loss = summary.value.add()
+                summary_value_avg_grasp_loss.simple_value = avg_grasp_loss
+                summary_value_avg_grasp_loss.tag = "val_grasp_loss"
+                # Grasp Accuracy
+                summary_value_grasp_accuracy = summary.value.add()
+                summary_value_grasp_accuracy.simple_value = grasp_accuracy
+                summary_value_grasp_accuracy.tag = "grasp_accuracy"
+                # Average IoU
+                summary_value_avg_iou = summary.value.add()
+                summary_value_avg_iou.simple_value = avg_iou
+                summary_value_avg_iou.tag = "avg_iou"
+                # Average Angle Diff
+                summary_value_avg_angle_diff = summary.value.add()
+                summary_value_avg_angle_diff.simple_value = avg_angle_diff
+                summary_value_avg_angle_diff.tag = "avg_angle_diff"
+
                 self.tensorboard.writer.add_summary(summary, epoch)
             else:
-                tf.summary.scalar('mAP', self.mean_ap, epoch)
-                tf.summary.scalar("ADD", self.mean_add, epoch)
-                tf.summary.scalar("ADD-S", self.mean_add_s, epoch)
-                tf.summary.scalar("5cm_5degree", self.mean_5cm_5degree, epoch)
-                tf.summary.scalar("TranslationErrorMean_in_mm", self.mean_translation_mean, epoch)
-                tf.summary.scalar("TranslationErrorStd_in_mm", self.mean_translation_std, epoch)
-                tf.summary.scalar("RotationErrorMean_in_degree", self.mean_rotation_mean, epoch)
-                tf.summary.scalar("RotationErrorStd_in_degree", self.mean_rotation_std, epoch)
-                tf.summary.scalar("2D_Projection", self.mean_2d_projection, epoch)
-                tf.summary.scalar("Summed_Translation_Rotation_Error", self.mean_translation_mean + self.mean_translation_std + self.mean_rotation_mean + self.mean_rotation_std, epoch)
-                tf.summary.scalar("ADD(-S)", self.mean_mixed_add_and_add_s_metric, epoch)
-                tf.summary.scalar("AverageSymmetricPointDistanceMean_in_mm", self.mean_transformed_sym_mean, epoch)
-                tf.summary.scalar("AverageSymmetricPointDistanceStd_in_mm", self.mean_transformed_sym_std, epoch)
-                tf.summary.scalar("AveragePointDistanceMean_in_mm", self.mean_transformed_mean, epoch)
-                tf.summary.scalar("AveragePointDistanceStd_in_mm", self.mean_transformed_std, epoch)
-                tf.summary.scalar("MixedAveragePointDistanceMean_in_mm", self.mean_mixed_transformed_mean, epoch)
-                tf.summary.scalar("MixedAveragePointDistanceStd_in_mm", self.mean_mixed_transformed_std, epoch)
+                tf.summary.scalar('val_grasp_loss', avg_grasp_loss, epoch)
+                tf.summary.scalar('grasp_accuracy', grasp_accuracy, epoch)
+                tf.summary.scalar('avg_iou', avg_iou, epoch)
+                tf.summary.scalar('avg_angle_diff', avg_angle_diff, epoch)
 
-        logs['mAP'] = self.mean_ap
-        logs['ADD'] = self.mean_add
-        logs['ADD-S'] = self.mean_add_s
-        logs['5cm_5degree'] = self.mean_5cm_5degree
-        logs['TranslationErrorMean_in_mm'] = self.mean_translation_mean
-        logs['TranslationErrorStd_in_mm'] = self.mean_translation_std
-        logs['RotationErrorMean_in_degree'] = self.mean_rotation_mean
-        logs['RotationErrorStd_in_degree'] = self.mean_rotation_std
-        logs['2D-Projection'] = self.mean_2d_projection
-        logs['Summed_Translation_Rotation_Error'] = self.mean_translation_mean + self.mean_translation_std + self.mean_rotation_mean + self.mean_rotation_std
-        logs['ADD(-S)'] = self.mean_mixed_add_and_add_s_metric
-        logs['AveragePointDistanceMean_in_mm'] = self.mean_transformed_mean
-        logs['AveragePointDistanceStd_in_mm'] = self.mean_transformed_std
-        logs['AverageSymmetricPointDistanceMean_in_mm'] = self.mean_transformed_sym_mean
-        logs['AverageSymmetricPointDistanceStd_in_mm'] = self.mean_transformed_sym_std
-        logs['MixedAveragePointDistanceMean_in_mm'] = self.mean_mixed_transformed_mean
-        logs['MixedAveragePointDistanceStd_in_mm'] = self.mean_mixed_transformed_std
+        logs['val_grasp_loss'] = avg_grasp_loss
+        logs['grasp_accuracy'] = grasp_accuracy
+        logs['avg_iou'] = avg_iou
+        logs['avg_angle_diff'] = avg_angle_diff
 
         if self.verbose == 1:
-            print('mAP: {:.4f}'.format(self.mean_ap))
-            print('ADD: {:.4f}'.format(self.mean_add))
-            print('ADD-S: {:.4f}'.format(self.mean_add_s))
-            print('5cm_5degree: {:.4f}'.format(self.mean_5cm_5degree))
-            print('TranslationErrorMean_in_mm: {:.4f}'.format(self.mean_translation_mean))
-            print('TranslationErrorStd_in_mm: {:.4f}'.format(self.mean_translation_std))
-            print('RotationErrorMean_in_degree: {:.4f}'.format(self.mean_rotation_mean))
-            print('RotationErrorStd_in_degree: {:.4f}'.format(self.mean_rotation_std))
-            print('2D-Projection: {:.4f}'.format(self.mean_2d_projection))
-            print('Summed_Translation_Rotation_Error: {:.4f}'.format(self.mean_translation_mean + self.mean_translation_std + self.mean_rotation_mean + self.mean_rotation_std))
-            print('ADD(-S): {:.4f}'.format(self.mean_mixed_add_and_add_s_metric))
-            print('AveragePointDistanceMean_in_mm: {:.4f}'.format(self.mean_transformed_mean))
-            print('AveragePointDistanceStd_in_mm: {:.4f}'.format(self.mean_transformed_std))
-            print('AverageSymmetricPointDistanceMean_in_mm: {:.4f}'.format(self.mean_transformed_sym_mean))
-            print('AverageSymmetricPointDistanceStd_in_mm: {:.4f}'.format(self.mean_transformed_sym_std))
-            print('MixedAveragePointDistanceMean_in_mm: {:.4f}'.format(self.mean_mixed_transformed_mean))
-            print('MixedAveragePointDistanceStd_in_mm: {:.4f}'.format(self.mean_mixed_transformed_std))
+            print('val_grasp_loss: {:.2f}'.format(avg_grasp_loss))
+            print('grasp_accuracy: {:.4f}'.format(grasp_accuracy))
+            print('avg_iou: {:.2f}'.format(avg_iou))
+            print('avg_angle_diff: {:.2f}'.format(avg_angle_diff))

@@ -1,42 +1,3 @@
-"""
-EfficientPose (c) by Steinbeis GmbH & Co. KG für Technologietransfer
-Haus der Wirtschaft, Willi-Bleicher-Straße 19, 70174 Stuttgart, Germany
-Yannick Bukschat: yannick.bukschat@stw.de
-Marcus Vetter: marcus.vetter@stw.de
-
-EfficientPose is licensed under a
-Creative Commons Attribution-NonCommercial 4.0 International License.
-
-The license can be found in the LICENSE file in the root directory of this source tree
-or at http://creativecommons.org/licenses/by-nc/4.0/.
----------------------------------------------------------------------------------------------------------------------------------
----------------------------------------------------------------------------------------------------------------------------------
-
-Based on:
-
-Keras EfficientDet implementation (https://github.com/xuannianz/EfficientDet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-The official EfficientDet implementation (https://github.com/google/automl) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-EfficientNet Keras implementation (https://github.com/qubvel/efficientnet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-Keras RetinaNet implementation (https://github.com/fizyr/keras-retinanet) licensed under
-    
-Copyright 2017-2018 Fizyr (https://fizyr.com)
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
 import argparse
 import time
 import os
@@ -46,12 +7,12 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 
-from model import build_EfficientPose
+from model import build_EfficientGrasp
 from losses import smooth_l1, focal, transformation_loss
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 
 from custom_load_weights import custom_load_weights
-
+import json
 
 def parse_args(args):
     """
@@ -62,12 +23,8 @@ def parse_args(args):
     subparsers = parser.add_subparsers(help = 'Arguments for specific dataset types.', dest = 'dataset_type')
     subparsers.required = True
     
-    linemod_parser = subparsers.add_parser('linemod')
-    linemod_parser.add_argument('linemod_path', help = 'Path to dataset directory (ie. /Datasets/Linemod_preprocessed).')
-    linemod_parser.add_argument('--object-id', help = 'ID of the Linemod Object to train on', type = int, default = 8)
-    
-    occlusion_parser = subparsers.add_parser('occlusion')
-    occlusion_parser.add_argument('occlusion_path', help = 'Path to dataset directory (ie. /Datasets/Linemod_preprocessed/).')
+    cornell_parser = subparsers.add_parser('cornell')
+    cornell_parser.add_argument('cornell_path', help = 'Path to dataset directory (ie. /Datasets/Linemod_preprocessed/).')
 
     parser.add_argument('--rotation-representation', help = 'Which representation of the rotation should be used. Choose from "axis_angle", "rotation_matrix" and "quaternion"', default = 'axis_angle')    
 
@@ -120,21 +77,20 @@ def main(args = None):
     train_generator, validation_generator = create_generators(args)
     print("Done!")
     
-    num_rotation_parameters = train_generator.get_num_rotation_parameters()
-    num_classes = train_generator.num_classes()
-    num_anchors = train_generator.num_anchors
+    num_classes = 10
+    num_anchors = 1
 
     # optionally choose specific GPU
     if args.gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     print("\nBuilding the Model...")
-    model, prediction_model, all_layers = build_EfficientPose(args.phi,
+    model, prediction_model, all_layers = build_EfficientGrasp(args.phi,
                                                               num_classes = num_classes,
                                                               num_anchors = num_anchors,
                                                               freeze_bn = not args.no_freeze_bn,
                                                               score_threshold = args.score_threshold,
-                                                              num_rotation_parameters = num_rotation_parameters)
+                                                              print_architecture=False)
     print("Done!")
     # load pretrained weights
     if args.weights:
@@ -158,15 +114,10 @@ def main(args = None):
         for i in range(1, [227, 329, 329, 374, 464, 566, 656][args.phi]):
             model.layers[i].trainable = False
 
+    mse = tf.keras.losses.MeanSquaredError()
     # compile model
     model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
-                  loss={'regression': smooth_l1(),
-                        'classification': focal(),
-                        'transformation': transformation_loss(model_3d_points_np = train_generator.get_all_3d_model_points_array_for_loss(),
-                                                              num_rotation_parameter = num_rotation_parameters)},
-                  loss_weights = {'regression' : 1.0,
-                                  'classification': 1.0,
-                                  'transformation': 0.02})
+                  loss={'regression': mse})
 
     # create the callbacks
     callbacks = create_callbacks(
@@ -181,19 +132,52 @@ def main(args = None):
     elif args.compute_val_loss and validation_generator is None:
         raise ValueError('When you have no validation data, you should not specify --compute-val-loss.')
 
-    # start training
-    return model.fit_generator(
-        generator = train_generator,
-        steps_per_epoch = args.steps,
-        initial_epoch = 0,
-        epochs = args.epochs,
-        verbose = 1,
-        callbacks = callbacks,
-        workers = args.workers,
-        use_multiprocessing = args.multiprocessing,
-        max_queue_size = args.max_queue_size,
-        validation_data = validation_generator
-    )
+    # ## TEST ON SINGLE IMAGE
+    # import numpy as np
+    # filename = '/home/aby/Workspace/MTP/Datasets/Cornell/archive/06/pcd0600r.png'
+    # from generators.cornell import load_and_preprocess_img
+    # test_data = load_and_preprocess_img(filename, side_after_crop=None, resize_height=512, resize_width=512)
+    # test_data = np.array(test_data)
+    # test_data = test_data[np.newaxis, ...]
+    # print(' ### TEST ###: ', test_data.shape)
+    # test_out = model.predict(test_data, verbose=1, steps=1)
+    # print(len(test_out))
+    # print(type(test_out[0]))
+    # # print(model.layers['grasp_5'].output)
+    # print(test_out.shape)
+    # # print(test_out[1].shape)
+    # exit()
+
+
+    TEST = False
+    if TEST:
+        # start testing
+        return model.fit_generator(
+            generator = train_generator,
+            steps_per_epoch = 1,
+            initial_epoch = 0,
+            epochs = args.epochs,
+            verbose = 1,
+            callbacks = callbacks,
+            workers = args.workers,
+            use_multiprocessing = args.multiprocessing,
+            max_queue_size = args.max_queue_size,
+            validation_data = validation_generator
+        )
+    else:
+        # start training
+        return model.fit_generator(
+            generator = train_generator,
+            steps_per_epoch = len(train_generator),
+            initial_epoch = 0,
+            epochs = args.epochs,
+            verbose = 1,
+            callbacks = callbacks,
+            workers = args.workers,
+            use_multiprocessing = args.multiprocessing,
+            max_queue_size = args.max_queue_size,
+            validation_data = validation_generator
+        )
 
 
 def allow_gpu_growth_memory():
@@ -223,32 +207,12 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
 
     tensorboard_callback = None
     
-    if args.dataset_type == "linemod":
-        snapshot_path = os.path.join(args.snapshot_path, "object_" + str(args.object_id))
-        if args.validation_image_save_path:
-            save_path = os.path.join(args.validation_image_save_path, "object_" + str(args.object_id))
-        else:
-            save_path = args.validation_image_save_path
-        if args.tensorboard_dir:
-            tensorboard_dir = os.path.join(args.tensorboard_dir, "object_" + str(args.object_id))
-            
-        if validation_generator.is_symmetric_object(args.object_id):
-            metric_to_monitor = "ADD-S"
-            mode = "max"
-        else:
-            metric_to_monitor = "ADD"
-            mode = "max"
-    elif args.dataset_type == "occlusion":
-        snapshot_path = os.path.join(args.snapshot_path, "occlusion")
-        if args.validation_image_save_path:
-            save_path = os.path.join(args.validation_image_save_path, "occlusion")
-        else:
-            save_path = args.validation_image_save_path
-        if args.tensorboard_dir:
-            tensorboard_dir = os.path.join(args.tensorboard_dir, "occlusion")
-            
-        metric_to_monitor = "ADD(-S)"
-        mode = "max"
+    if args.dataset_type == "cornell":
+        snapshot_path = args.snapshot_path
+        save_path = args.validation_image_save_path
+        tensorboard_dir = args.tensorboard_dir
+        metric_to_monitor = "val_grasp_loss"
+        mode = "min"
     else:
         snapshot_path = args.snapshot_path
         save_path = args.validation_image_save_path
@@ -283,21 +247,21 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}.h5'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
                                                      verbose = 1,
                                                      #save_weights_only = True,
-                                                     save_best_only = True,
+                                                    #  save_best_only = True,
                                                      monitor = metric_to_monitor,
                                                      mode = mode)
         callbacks.append(checkpoint)
 
-    callbacks.append(keras.callbacks.ReduceLROnPlateau(
-        monitor    = 'MixedAveragePointDistanceMean_in_mm',
-        factor     = 0.5,
-        patience   = 25,
-        verbose    = 1,
-        mode       = 'min',
-        min_delta  = 0.0001,
-        cooldown   = 0,
-        min_lr     = 1e-7
-    ))
+    # callbacks.append(keras.callbacks.ReduceLROnPlateau(
+    #     monitor    = 'MixedAveragePointDistanceMean_in_mm',
+    #     factor     = 0.5,
+    #     patience   = 25,
+    #     verbose    = 1,
+    #     mode       = 'min',
+    #     min_delta  = 0.0001,
+    #     cooldown   = 0,
+    #     min_lr     = 1e-7
+    # ))
 
     return callbacks
 
@@ -315,47 +279,29 @@ def create_generators(args):
         'batch_size': args.batch_size,
         'phi': args.phi,
     }
+    
+    if args.dataset_type == 'cornell':
+        from generators.cornell import CornellGenerator
 
-    if args.dataset_type == 'linemod':
-        from generators.linemod import LineModGenerator
-        train_generator = LineModGenerator(
-            args.linemod_path,
-            args.object_id,
-            rotation_representation = args.rotation_representation,
-            use_colorspace_augmentation = not args.no_color_augmentation,
-            use_6DoF_augmentation = not args.no_6dof_augmentation,
+        dataset = args.cornell_path
+
+        # open output file for reading
+        with open(dataset+'/train.txt', 'r') as filehandle:
+            train_data = json.load(filehandle)
+        with open(dataset+'/valid.txt', 'r') as filehandle:
+            valid_data = json.load(filehandle)
+        
+        # # Shuffle the list of image paths
+        # np.random.shuffle(train_data)
+
+        train_generator = CornellGenerator(
+            train_data,
             **common_args
         )
 
-        validation_generator = LineModGenerator(
-            args.linemod_path,
-            args.object_id,
-            train = False,
-            shuffle_dataset = False,
-            shuffle_groups = False,
-            rotation_representation = args.rotation_representation,
-            use_colorspace_augmentation = False,
-            use_6DoF_augmentation = False,
-            **common_args
-        )
-    elif args.dataset_type == 'occlusion':
-        from generators.occlusion import OcclusionGenerator
-        train_generator = OcclusionGenerator(
-            args.occlusion_path,
-            rotation_representation = args.rotation_representation,
-            use_colorspace_augmentation = not args.no_color_augmentation,
-            use_6DoF_augmentation = not args.no_6dof_augmentation,
-            **common_args
-        )
-
-        validation_generator = OcclusionGenerator(
-            args.occlusion_path,
-            train = False,
-            shuffle_dataset = False,
-            shuffle_groups = False,
-            rotation_representation = args.rotation_representation,
-            use_colorspace_augmentation = False,
-            use_6DoF_augmentation = False,
+        validation_generator = CornellGenerator(
+            valid_data,
+            train=False,
             **common_args
         )
     else:

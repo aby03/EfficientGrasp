@@ -48,7 +48,7 @@ from tfkeras import EfficientNetB0, EfficientNetB1, EfficientNetB2, EfficientNet
 
 from layers import ClipBoxes, RegressBoxes, FilterDetections, wBiFPNAdd, BatchNormalization, RegressTranslation, CalculateTxTy, GroupNormalization
 from initializers import PriorProbability
-from utils.anchors import anchors_for_shape
+# from utils.anchors import anchors_for_shape
 import numpy as np
 
 
@@ -56,13 +56,12 @@ MOMENTUM = 0.997
 EPSILON = 1e-4
 
 
-def build_EfficientPose(phi,
-                        num_classes = 8,
-                        num_anchors = 9,
+def build_EfficientGrasp(phi,
+                        num_classes = 10,
+                        num_anchors = 1,
                         freeze_bn = False,
                         score_threshold = 0.5,
                         anchor_parameters = None,
-                        num_rotation_parameters = 3,
                         print_architecture = True):
     """
     Builds an EfficientPose model
@@ -97,7 +96,6 @@ def build_EfficientPose(phi,
     
     #input layers
     image_input = layers.Input(input_shape)
-    camera_parameters_input = layers.Input((6,)) #camera parameters and image scale for calculating the translation vector from 2D x-, y-coordinates
     
     #build EfficientNet backbone
     backbone_feature_maps = backbone_class(input_tensor = image_input, freeze_bn = freeze_bn)
@@ -106,46 +104,41 @@ def build_EfficientPose(phi,
     fpn_feature_maps = build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, freeze_bn)
     
     #build subnets
-    box_net, class_net, rotation_net, translation_net = build_subnets(num_classes,
-                                                                      subnet_width,
-                                                                      subnet_depth,
-                                                                      subnet_num_iteration_steps,
-                                                                      num_groups_gn,
-                                                                      num_rotation_parameters,
-                                                                      freeze_bn,
-                                                                      num_anchors)
+    grasp_net = build_subnets(num_classes,
+                            subnet_width,
+                            subnet_depth,
+                            subnet_num_iteration_steps,
+                            num_groups_gn,
+                            freeze_bn,
+                            num_anchors)
     
     #apply subnets to feature maps
-    classification, bbox_regression, rotation, translation, transformation, bboxes = apply_subnets_to_feature_maps(box_net,
-                                                                                                                   class_net,
-                                                                                                                   rotation_net,
-                                                                                                                   translation_net,
-                                                                                                                   fpn_feature_maps,
-                                                                                                                   image_input,
-                                                                                                                   camera_parameters_input,
-                                                                                                                   input_size,
-                                                                                                                   anchor_parameters)
+    grasp_regression = apply_subnets_to_feature_maps(grasp_net,
+                                                            fpn_feature_maps,
+                                                            image_input,
+                                                            input_size,
+                                                            anchor_parameters)
     
     
     #get the EfficientPose model for training without NMS and the rotation and translation output combined in the transformation output because of the loss calculation
-    efficientpose_train = models.Model(inputs = [image_input, camera_parameters_input], outputs = [classification, bbox_regression, transformation], name = 'efficientpose')
+    efficientgrasp_train = models.Model(inputs = [image_input], outputs = [grasp_regression], name = 'efficientgrasp')
 
-    # filter detections (apply NMS / score threshold / select top-k)
-    filtered_detections = FilterDetections(num_rotation_parameters = num_rotation_parameters,
-                                           num_translation_parameters = 3,
-                                           name = 'filtered_detections',
-                                           score_threshold = score_threshold
-                                           )([bboxes, classification, rotation, translation])
+    # # filter detections (apply NMS / score threshold / select top-k)
+    # filtered_detections = FilterDetections(num_rotation_parameters = num_rotation_parameters,
+    #                                        num_translation_parameters = 3,
+    #                                        name = 'filtered_detections',
+    #                                        score_threshold = score_threshold
+    #                                        )([bboxes, classification, rotation, translation])
 
-    efficientpose_prediction = models.Model(inputs = [image_input, camera_parameters_input], outputs = filtered_detections, name = 'efficientpose_prediction')
+    efficientgrasp_prediction = models.Model(inputs = [image_input], outputs = [grasp_regression], name = 'efficientgrasp_prediction')
     
     if print_architecture:
-        print_models(efficientpose_train, box_net, class_net, rotation_net, translation_net)
+        print_models(efficientgrasp_train, grasp_net)
         
     #create list with all layers to be able to load all layer weights because sometimes the whole subnet weight loading is skipped if the output shape does not match instead of skipping just the output layer
-    all_layers = list(set(efficientpose_train.layers + box_net.layers + class_net.layers + rotation_net.layers + translation_net.layers))
+    all_layers = list(set(efficientgrasp_train.layers + grasp_net.layers))
     
-    return efficientpose_train, efficientpose_prediction, all_layers
+    return efficientgrasp_train, efficientgrasp_prediction, all_layers
 
 
 def get_scaled_parameters(phi):
@@ -379,7 +372,7 @@ def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn = Fal
     return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
 
 
-def build_subnets(num_classes, subnet_width, subnet_depth, subnet_num_iteration_steps, num_groups_gn, num_rotation_parameters, freeze_bn, num_anchors):
+def build_subnets(num_classes, subnet_width, subnet_depth, subnet_num_iteration_steps, num_groups_gn, freeze_bn, num_anchors):
     """
     Builds the EfficientPose subnetworks
     Args:
@@ -395,48 +388,132 @@ def build_subnets(num_classes, subnet_width, subnet_depth, subnet_num_iteration_
     Returns:
        The subnetworks
     """
-    box_net = BoxNet(subnet_width,
-                      subnet_depth,
-                      num_anchors = num_anchors,
-                      freeze_bn = freeze_bn,
-                      name = 'box_net')
+    # box_net = BoxNet(subnet_width,
+    #                   subnet_depth,
+    #                   num_anchors = num_anchors,
+    #                   freeze_bn = freeze_bn,
+    #                   name = 'box_net')
     
-    class_net = ClassNet(subnet_width,
-                          subnet_depth,
-                          num_classes = num_classes,
-                          num_anchors = num_anchors,
-                          freeze_bn = freeze_bn,
-                          name = 'class_net')
-    
-    rotation_net = RotationNet(subnet_width,
-                                subnet_depth,
-                                num_values = num_rotation_parameters,
-                                num_iteration_steps = subnet_num_iteration_steps,
-                                num_anchors = num_anchors,
-                                freeze_bn = freeze_bn,
-                                use_group_norm = True,
-                                num_groups_gn = num_groups_gn,
-                                name = 'rotation_net')
-    
-    translation_net = TranslationNet(subnet_width,
-                                subnet_depth,
-                                num_iteration_steps = subnet_num_iteration_steps,
-                                num_anchors = num_anchors,
-                                freeze_bn = freeze_bn,
-                                use_group_norm = True,
-                                num_groups_gn = num_groups_gn,
-                                name = 'translation_net')
+    # class_net = ClassNet(subnet_width,
+    #                       subnet_depth,
+    #                       num_classes = num_classes,
+    #                       num_anchors = num_anchors,
+    #                       freeze_bn = freeze_bn,
+    #                       name = 'class_net')
 
-    return box_net, class_net, rotation_net, translation_net     
+    grasp_net = GraspNet(subnet_width,
+                         subnet_depth,
+                         freeze_bn=freeze_bn, 
+                         name='grasp_net')
 
 
-class BoxNet(models.Model):
-    def __init__(self, width, depth, num_anchors = 9, freeze_bn = False, **kwargs):
-        super(BoxNet, self).__init__(**kwargs)
+    # rotation_net = RotationNet(subnet_width,
+    #                             subnet_depth,
+    #                             num_values = num_rotation_parameters,
+    #                             num_iteration_steps = subnet_num_iteration_steps,
+    #                             num_anchors = num_anchors,
+    #                             freeze_bn = freeze_bn,
+    #                             use_group_norm = True,
+    #                             num_groups_gn = num_groups_gn,
+    #                             name = 'rotation_net')
+    
+    # translation_net = TranslationNet(subnet_width,
+    #                             subnet_depth,
+    #                             num_iteration_steps = subnet_num_iteration_steps,
+    #                             num_anchors = num_anchors,
+    #                             freeze_bn = freeze_bn,
+    #                             use_group_norm = True,
+    #                             num_groups_gn = num_groups_gn,
+    #                             name = 'translation_net')
+
+    return grasp_net
+
+
+# class BoxNet(models.Model):
+#     def __init__(self, width, depth, num_anchors = 9, freeze_bn = False, **kwargs):
+#         super(BoxNet, self).__init__(**kwargs)
+#         self.width = width
+#         self.depth = depth
+#         self.num_anchors = num_anchors
+#         self.num_values = 4
+#         options = {
+#             'kernel_size': 3,
+#             'strides': 1,
+#             'padding': 'same',
+#             'bias_initializer': 'zeros',
+#         }
+
+#         kernel_initializer = {
+#             'depthwise_initializer': initializers.VarianceScaling(),
+#             'pointwise_initializer': initializers.VarianceScaling(),
+#         }
+#         options.update(kernel_initializer)
+#         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/box-{i}', **options) for i in range(self.depth)]
+#         self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/box-predict', **options)
+        
+#         self.bns = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
+#         self.reshape = layers.Reshape((-1, self.num_values))
+#         self.level = 0
+
+#     def call(self, inputs, **kwargs):
+#         feature, level = inputs
+#         for i in range(self.depth):
+#             feature = self.convs[i](feature)
+#             feature = self.bns[i][self.level](feature)
+#             feature = self.activation(feature)
+#         outputs = self.head(feature)
+#         outputs = self.reshape(outputs)
+#         self.level += 1
+#         return outputs
+
+
+# class ClassNet(models.Model):
+#     def __init__(self, width, depth, num_classes = 8, num_anchors = 9, freeze_bn = False, **kwargs):
+#         super(ClassNet, self).__init__(**kwargs)
+#         self.width = width
+#         self.depth = depth
+#         self.num_classes = num_classes
+#         self.num_anchors = num_anchors
+#         options = {
+#             'kernel_size': 3,
+#             'strides': 1,
+#             'padding': 'same',
+#         }
+
+#         kernel_initializer = {
+#             'depthwise_initializer': initializers.VarianceScaling(),
+#             'pointwise_initializer': initializers.VarianceScaling(),
+#         }
+#         options.update(kernel_initializer)
+#         self.convs = [layers.SeparableConv2D(filters = self.width, bias_initializer = 'zeros', name = f'{self.name}/class-{i}', **options) for i in range(self.depth)]
+#         self.head = layers.SeparableConv2D(filters = self.num_classes * self.num_anchors, bias_initializer = PriorProbability(probability = 0.01), name = f'{self.name}/class-predict', **options)
+
+#         self.bns = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/class-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
+#         self.reshape = layers.Reshape((-1, self.num_classes))
+#         self.activation_sigmoid = layers.Activation('sigmoid')
+#         self.level = 0
+
+#     def call(self, inputs, **kwargs):
+#         feature, level = inputs
+#         for i in range(self.depth):
+#             feature = self.convs[i](feature)
+#             feature = self.bns[i][self.level](feature)
+#             feature = self.activation(feature)
+#         outputs = self.head(feature)
+#         outputs = self.reshape(outputs)
+#         outputs = self.activation_sigmoid(outputs)
+#         self.level += 1
+#         return outputs
+
+class GraspNet(models.Model):
+    def __init__(self, width, depth, num_anchors = 1, freeze_bn = False, **kwargs):
+        super(GraspNet, self).__init__(**kwargs)
         self.width = width
         self.depth = depth
         self.num_anchors = num_anchors
-        self.num_values = 4
+        self.num_values = 5 # x, y, tan_t, h, w
         options = {
             'kernel_size': 3,
             'strides': 1,
@@ -468,305 +545,265 @@ class BoxNet(models.Model):
         self.level += 1
         return outputs
 
-
-class ClassNet(models.Model):
-    def __init__(self, width, depth, num_classes = 8, num_anchors = 9, freeze_bn = False, **kwargs):
-        super(ClassNet, self).__init__(**kwargs)
-        self.width = width
-        self.depth = depth
-        self.num_classes = num_classes
-        self.num_anchors = num_anchors
-        options = {
-            'kernel_size': 3,
-            'strides': 1,
-            'padding': 'same',
-        }
-
-        kernel_initializer = {
-            'depthwise_initializer': initializers.VarianceScaling(),
-            'pointwise_initializer': initializers.VarianceScaling(),
-        }
-        options.update(kernel_initializer)
-        self.convs = [layers.SeparableConv2D(filters = self.width, bias_initializer = 'zeros', name = f'{self.name}/class-{i}', **options) for i in range(self.depth)]
-        self.head = layers.SeparableConv2D(filters = self.num_classes * self.num_anchors, bias_initializer = PriorProbability(probability = 0.01), name = f'{self.name}/class-predict', **options)
-
-        self.bns = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/class-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
-        self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
-        self.reshape = layers.Reshape((-1, self.num_classes))
-        self.activation_sigmoid = layers.Activation('sigmoid')
-        self.level = 0
-
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.bns[i][self.level](feature)
-            feature = self.activation(feature)
-        outputs = self.head(feature)
-        outputs = self.reshape(outputs)
-        outputs = self.activation_sigmoid(outputs)
-        self.level += 1
-        return outputs
     
-    
-class IterativeRotationSubNet(models.Model):
-    def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
-        super(IterativeRotationSubNet, self).__init__(**kwargs)
-        self.width = width
-        self.depth = depth
-        self.num_anchors = num_anchors
-        self.num_values = num_values
-        self.num_iteration_steps = num_iteration_steps
-        self.use_group_norm = use_group_norm
-        self.num_groups_gn = num_groups_gn
+# class IterativeRotationSubNet(models.Model):
+#     def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
+#         super(IterativeRotationSubNet, self).__init__(**kwargs)
+#         self.width = width
+#         self.depth = depth
+#         self.num_anchors = num_anchors
+#         self.num_values = num_values
+#         self.num_iteration_steps = num_iteration_steps
+#         self.use_group_norm = use_group_norm
+#         self.num_groups_gn = num_groups_gn
         
-        if backend.image_data_format() == 'channels_first':
-            gn_channel_axis = 1
-        else:
-            gn_channel_axis = -1
+#         if backend.image_data_format() == 'channels_first':
+#             gn_channel_axis = 1
+#         else:
+#             gn_channel_axis = -1
             
-        options = {
-            'kernel_size': 3,
-            'strides': 1,
-            'padding': 'same',
-            'bias_initializer': 'zeros',
-        }
+#         options = {
+#             'kernel_size': 3,
+#             'strides': 1,
+#             'padding': 'same',
+#             'bias_initializer': 'zeros',
+#         }
 
-        kernel_initializer = {
-            'depthwise_initializer': initializers.VarianceScaling(),
-            'pointwise_initializer': initializers.VarianceScaling(),
-        }
-        options.update(kernel_initializer)
-        self.convs = [layers.SeparableConv2D(filters = width, name = f'{self.name}/iterative-rotation-sub-{i}', **options) for i in range(self.depth)]
-        self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/iterative-rotation-sub-predict', **options)
+#         kernel_initializer = {
+#             'depthwise_initializer': initializers.VarianceScaling(),
+#             'pointwise_initializer': initializers.VarianceScaling(),
+#         }
+#         options.update(kernel_initializer)
+#         self.convs = [layers.SeparableConv2D(filters = width, name = f'{self.name}/iterative-rotation-sub-{i}', **options) for i in range(self.depth)]
+#         self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/iterative-rotation-sub-predict', **options)
         
-        if self.use_group_norm:
-            self.norm_layer = [[[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/iterative-rotation-sub-{k}-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
-        else: 
-            self.norm_layer = [[[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/iterative-rotation-sub-{k}-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
+#         if self.use_group_norm:
+#             self.norm_layer = [[[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/iterative-rotation-sub-{k}-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
+#         else: 
+#             self.norm_layer = [[[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/iterative-rotation-sub-{k}-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
 
-        self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
+#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        level_py = kwargs["level_py"]
-        iter_step_py = kwargs["iter_step_py"]
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.norm_layer[iter_step_py][i][level_py](feature)
-            feature = self.activation(feature)
-        outputs = self.head(feature)
+#     def call(self, inputs, **kwargs):
+#         feature, level = inputs
+#         level_py = kwargs["level_py"]
+#         iter_step_py = kwargs["iter_step_py"]
+#         for i in range(self.depth):
+#             feature = self.convs[i](feature)
+#             feature = self.norm_layer[iter_step_py][i][level_py](feature)
+#             feature = self.activation(feature)
+#         outputs = self.head(feature)
         
-        return outputs
+#         return outputs
     
     
-class RotationNet(models.Model):
-    def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
-        super(RotationNet, self).__init__(**kwargs)
-        self.width = width
-        self.depth = depth
-        self.num_anchors = num_anchors
-        self.num_values = num_values
-        self.num_iteration_steps = num_iteration_steps
-        self.use_group_norm = use_group_norm
-        self.num_groups_gn = num_groups_gn
+# class RotationNet(models.Model):
+#     def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
+#         super(RotationNet, self).__init__(**kwargs)
+#         self.width = width
+#         self.depth = depth
+#         self.num_anchors = num_anchors
+#         self.num_values = num_values
+#         self.num_iteration_steps = num_iteration_steps
+#         self.use_group_norm = use_group_norm
+#         self.num_groups_gn = num_groups_gn
         
-        if backend.image_data_format() == 'channels_first':
-            channel_axis = 0
-            gn_channel_axis = 1
-        else:
-            channel_axis = -1
-            gn_channel_axis = -1
+#         if backend.image_data_format() == 'channels_first':
+#             channel_axis = 0
+#             gn_channel_axis = 1
+#         else:
+#             channel_axis = -1
+#             gn_channel_axis = -1
             
-        options = {
-            'kernel_size': 3,
-            'strides': 1,
-            'padding': 'same',
-            'bias_initializer': 'zeros',
-        }
+#         options = {
+#             'kernel_size': 3,
+#             'strides': 1,
+#             'padding': 'same',
+#             'bias_initializer': 'zeros',
+#         }
 
-        kernel_initializer = {
-            'depthwise_initializer': initializers.VarianceScaling(),
-            'pointwise_initializer': initializers.VarianceScaling(),
-        }
-        options.update(kernel_initializer)
-        self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/rotation-{i}', **options) for i in range(self.depth)]
-        self.initial_rotation = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/rotation-init-predict', **options)
+#         kernel_initializer = {
+#             'depthwise_initializer': initializers.VarianceScaling(),
+#             'pointwise_initializer': initializers.VarianceScaling(),
+#         }
+#         options.update(kernel_initializer)
+#         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/rotation-{i}', **options) for i in range(self.depth)]
+#         self.initial_rotation = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/rotation-init-predict', **options)
     
-        if self.use_group_norm:
-            self.norm_layer = [[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/rotation-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)]
-        else: 
-            self.norm_layer = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/rotation-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+#         if self.use_group_norm:
+#             self.norm_layer = [[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/rotation-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+#         else: 
+#             self.norm_layer = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/rotation-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
         
-        self.iterative_submodel = IterativeRotationSubNet(width = self.width,
-                                                          depth = self.depth - 1,
-                                                          num_values = self.num_values,
-                                                          num_iteration_steps = self.num_iteration_steps,
-                                                          num_anchors = self.num_anchors,
-                                                          freeze_bn = freeze_bn,
-                                                          use_group_norm = self.use_group_norm,
-                                                          num_groups_gn = self.num_groups_gn,
-                                                          name = "iterative_rotation_subnet")
+#         self.iterative_submodel = IterativeRotationSubNet(width = self.width,
+#                                                           depth = self.depth - 1,
+#                                                           num_values = self.num_values,
+#                                                           num_iteration_steps = self.num_iteration_steps,
+#                                                           num_anchors = self.num_anchors,
+#                                                           freeze_bn = freeze_bn,
+#                                                           use_group_norm = self.use_group_norm,
+#                                                           num_groups_gn = self.num_groups_gn,
+#                                                           name = "iterative_rotation_subnet")
 
-        self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
-        self.reshape = layers.Reshape((-1, num_values))
-        self.level = 0
-        self.add = layers.Add()
-        self.concat = layers.Concatenate(axis = channel_axis)
+#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
+#         self.reshape = layers.Reshape((-1, num_values))
+#         self.level = 0
+#         self.add = layers.Add()
+#         self.concat = layers.Concatenate(axis = channel_axis)
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.norm_layer[i][self.level](feature)
-            feature = self.activation(feature)
+#     def call(self, inputs, **kwargs):
+#         feature, level = inputs
+#         for i in range(self.depth):
+#             feature = self.convs[i](feature)
+#             feature = self.norm_layer[i][self.level](feature)
+#             feature = self.activation(feature)
             
-        rotation = self.initial_rotation(feature)
+#         rotation = self.initial_rotation(feature)
         
-        for i in range(self.num_iteration_steps):
-            iterative_input = self.concat([feature, rotation])
-            delta_rotation = self.iterative_submodel([iterative_input, level], level_py = self.level, iter_step_py = i)
-            rotation = self.add([rotation, delta_rotation])
+#         for i in range(self.num_iteration_steps):
+#             iterative_input = self.concat([feature, rotation])
+#             delta_rotation = self.iterative_submodel([iterative_input, level], level_py = self.level, iter_step_py = i)
+#             rotation = self.add([rotation, delta_rotation])
         
-        outputs = self.reshape(rotation)
-        self.level += 1
-        return outputs
+#         outputs = self.reshape(rotation)
+#         self.level += 1
+#         return outputs
     
     
-class IterativeTranslationSubNet(models.Model):
-    def __init__(self, width, depth, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
-        super(IterativeTranslationSubNet, self).__init__(**kwargs)
-        self.width = width
-        self.depth = depth
-        self.num_anchors = num_anchors
-        self.num_iteration_steps = num_iteration_steps
-        self.use_group_norm = use_group_norm
-        self.num_groups_gn = num_groups_gn
+# class IterativeTranslationSubNet(models.Model):
+#     def __init__(self, width, depth, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
+#         super(IterativeTranslationSubNet, self).__init__(**kwargs)
+#         self.width = width
+#         self.depth = depth
+#         self.num_anchors = num_anchors
+#         self.num_iteration_steps = num_iteration_steps
+#         self.use_group_norm = use_group_norm
+#         self.num_groups_gn = num_groups_gn
         
-        if backend.image_data_format() == 'channels_first':
-            gn_channel_axis = 1
-        else:
-            gn_channel_axis = -1
+#         if backend.image_data_format() == 'channels_first':
+#             gn_channel_axis = 1
+#         else:
+#             gn_channel_axis = -1
             
-        options = {
-            'kernel_size': 3,
-            'strides': 1,
-            'padding': 'same',
-            'bias_initializer': 'zeros',
-        }
+#         options = {
+#             'kernel_size': 3,
+#             'strides': 1,
+#             'padding': 'same',
+#             'bias_initializer': 'zeros',
+#         }
 
-        kernel_initializer = {
-            'depthwise_initializer': initializers.VarianceScaling(),
-            'pointwise_initializer': initializers.VarianceScaling(),
-        }
-        options.update(kernel_initializer)
-        self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/iterative-translation-sub-{i}', **options) for i in range(self.depth)]
-        self.head_xy = layers.SeparableConv2D(filters = self.num_anchors * 2, name = f'{self.name}/iterative-translation-xy-sub-predict', **options)
-        self.head_z = layers.SeparableConv2D(filters = self.num_anchors, name = f'{self.name}/iterative-translation-z-sub-predict', **options)
+#         kernel_initializer = {
+#             'depthwise_initializer': initializers.VarianceScaling(),
+#             'pointwise_initializer': initializers.VarianceScaling(),
+#         }
+#         options.update(kernel_initializer)
+#         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/iterative-translation-sub-{i}', **options) for i in range(self.depth)]
+#         self.head_xy = layers.SeparableConv2D(filters = self.num_anchors * 2, name = f'{self.name}/iterative-translation-xy-sub-predict', **options)
+#         self.head_z = layers.SeparableConv2D(filters = self.num_anchors, name = f'{self.name}/iterative-translation-z-sub-predict', **options)
 
-        if self.use_group_norm:
-            self.norm_layer = [[[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/iterative-translation-sub-{k}-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
-        else: 
-            self.norm_layer = [[[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/iterative-translation-sub-{k}-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
+#         if self.use_group_norm:
+#             self.norm_layer = [[[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/iterative-translation-sub-{k}-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
+#         else: 
+#             self.norm_layer = [[[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/iterative-translation-sub-{k}-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)] for k in range(self.num_iteration_steps)]
 
-        self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
+#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
 
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        level_py = kwargs["level_py"]
-        iter_step_py = kwargs["iter_step_py"]
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.norm_layer[iter_step_py][i][level_py](feature)
-            feature = self.activation(feature)
-        outputs_xy = self.head_xy(feature)
-        outputs_z = self.head_z(feature)
+#     def call(self, inputs, **kwargs):
+#         feature, level = inputs
+#         level_py = kwargs["level_py"]
+#         iter_step_py = kwargs["iter_step_py"]
+#         for i in range(self.depth):
+#             feature = self.convs[i](feature)
+#             feature = self.norm_layer[iter_step_py][i][level_py](feature)
+#             feature = self.activation(feature)
+#         outputs_xy = self.head_xy(feature)
+#         outputs_z = self.head_z(feature)
 
-        return outputs_xy, outputs_z
+#         return outputs_xy, outputs_z
     
     
     
-class TranslationNet(models.Model):
-    def __init__(self, width, depth, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
-        super(TranslationNet, self).__init__(**kwargs)
-        self.width = width
-        self.depth = depth
-        self.num_anchors = num_anchors
-        self.num_iteration_steps = num_iteration_steps
-        self.use_group_norm = use_group_norm
-        self.num_groups_gn = num_groups_gn
+# class TranslationNet(models.Model):
+#     def __init__(self, width, depth, num_iteration_steps, num_anchors = 9, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
+#         super(TranslationNet, self).__init__(**kwargs)
+#         self.width = width
+#         self.depth = depth
+#         self.num_anchors = num_anchors
+#         self.num_iteration_steps = num_iteration_steps
+#         self.use_group_norm = use_group_norm
+#         self.num_groups_gn = num_groups_gn
         
-        if backend.image_data_format() == 'channels_first':
-            channel_axis = 0
-            gn_channel_axis = 1
-        else:
-            channel_axis = -1
-            gn_channel_axis = -1
+#         if backend.image_data_format() == 'channels_first':
+#             channel_axis = 0
+#             gn_channel_axis = 1
+#         else:
+#             channel_axis = -1
+#             gn_channel_axis = -1
             
-        options = {
-            'kernel_size': 3,
-            'strides': 1,
-            'padding': 'same',
-            'bias_initializer': 'zeros',
-        }
+#         options = {
+#             'kernel_size': 3,
+#             'strides': 1,
+#             'padding': 'same',
+#             'bias_initializer': 'zeros',
+#         }
 
-        kernel_initializer = {
-            'depthwise_initializer': initializers.VarianceScaling(),
-            'pointwise_initializer': initializers.VarianceScaling(),
-        }
-        options.update(kernel_initializer)
-        self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/translation-{i}', **options) for i in range(self.depth)]
-        self.initial_translation_xy = layers.SeparableConv2D(filters = self.num_anchors * 2, name = f'{self.name}/translation-xy-init-predict', **options)
-        self.initial_translation_z = layers.SeparableConv2D(filters = self.num_anchors, name = f'{self.name}/translation-z-init-predict', **options)
+#         kernel_initializer = {
+#             'depthwise_initializer': initializers.VarianceScaling(),
+#             'pointwise_initializer': initializers.VarianceScaling(),
+#         }
+#         options.update(kernel_initializer)
+#         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/translation-{i}', **options) for i in range(self.depth)]
+#         self.initial_translation_xy = layers.SeparableConv2D(filters = self.num_anchors * 2, name = f'{self.name}/translation-xy-init-predict', **options)
+#         self.initial_translation_z = layers.SeparableConv2D(filters = self.num_anchors, name = f'{self.name}/translation-z-init-predict', **options)
 
-        if self.use_group_norm:
-            self.norm_layer = [[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/translation-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)]
-        else: 
-            self.norm_layer = [[layers.BatchNormalization(momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/translation-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+#         if self.use_group_norm:
+#             self.norm_layer = [[GroupNormalization(groups = self.num_groups_gn, axis = gn_channel_axis, name = f'{self.name}/translation-{i}-gn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+#         else: 
+#             self.norm_layer = [[layers.BatchNormalization(momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/translation-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
         
-        self.iterative_submodel = IterativeTranslationSubNet(width = self.width,
-                                                             depth = self.depth - 1,
-                                                             num_iteration_steps = self.num_iteration_steps,
-                                                             num_anchors = self.num_anchors,
-                                                             freeze_bn = freeze_bn,
-                                                             use_group_norm= self.use_group_norm,
-                                                             num_groups_gn = self.num_groups_gn,
-                                                             name = "iterative_translation_subnet")
+#         self.iterative_submodel = IterativeTranslationSubNet(width = self.width,
+#                                                              depth = self.depth - 1,
+#                                                              num_iteration_steps = self.num_iteration_steps,
+#                                                              num_anchors = self.num_anchors,
+#                                                              freeze_bn = freeze_bn,
+#                                                              use_group_norm= self.use_group_norm,
+#                                                              num_groups_gn = self.num_groups_gn,
+#                                                              name = "iterative_translation_subnet")
 
-        self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
-        self.reshape_xy = layers.Reshape((-1, 2))
-        self.reshape_z = layers.Reshape((-1, 1))
-        self.level = 0
-        self.add = layers.Add()
-        self.concat = layers.Concatenate(axis = channel_axis)
+#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
+#         self.reshape_xy = layers.Reshape((-1, 2))
+#         self.reshape_z = layers.Reshape((-1, 1))
+#         self.level = 0
+#         self.add = layers.Add()
+#         self.concat = layers.Concatenate(axis = channel_axis)
             
-        self.concat_output = layers.Concatenate(axis = -1) #always last axis after reshape
+#         self.concat_output = layers.Concatenate(axis = -1) #always last axis after reshape
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.norm_layer[i][self.level](feature)
-            feature = self.activation(feature)
+#     def call(self, inputs, **kwargs):
+#         feature, level = inputs
+#         for i in range(self.depth):
+#             feature = self.convs[i](feature)
+#             feature = self.norm_layer[i][self.level](feature)
+#             feature = self.activation(feature)
             
-        translation_xy = self.initial_translation_xy(feature)
-        translation_z = self.initial_translation_z(feature)
+#         translation_xy = self.initial_translation_xy(feature)
+#         translation_z = self.initial_translation_z(feature)
         
-        for i in range(self.num_iteration_steps):
-            iterative_input = self.concat([feature, translation_xy, translation_z])
-            delta_translation_xy, delta_translation_z = self.iterative_submodel([iterative_input, level], level_py = self.level, iter_step_py = i)
-            translation_xy = self.add([translation_xy, delta_translation_xy])
-            translation_z = self.add([translation_z, delta_translation_z])
+#         for i in range(self.num_iteration_steps):
+#             iterative_input = self.concat([feature, translation_xy, translation_z])
+#             delta_translation_xy, delta_translation_z = self.iterative_submodel([iterative_input, level], level_py = self.level, iter_step_py = i)
+#             translation_xy = self.add([translation_xy, delta_translation_xy])
+#             translation_z = self.add([translation_z, delta_translation_z])
         
-        outputs_xy = self.reshape_xy(translation_xy)
-        outputs_z = self.reshape_z(translation_z)
-        outputs = self.concat_output([outputs_xy, outputs_z])
-        self.level += 1
-        return outputs
+#         outputs_xy = self.reshape_xy(translation_xy)
+#         outputs_z = self.reshape_z(translation_z)
+#         outputs = self.concat_output([outputs_xy, outputs_z])
+#         self.level += 1
+#         return outputs
     
 
-def apply_subnets_to_feature_maps(box_net, class_net, rotation_net, translation_net, fpn_feature_maps, image_input, camera_parameters_input, input_size, anchor_parameters):
+def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, input_size, anchor_parameters):
     """
     Applies the subnetworks to the BiFPN feature maps
     Args:
@@ -785,42 +822,49 @@ def apply_subnets_to_feature_maps(box_net, class_net, rotation_net, translation_
                        Rotation and Translation are concatenated because the Keras Loss function takes only one GT and prediction tensor respectively as input but the transformation loss needs both
        bboxes: Tensor containing the 2D bounding boxes for all anchor boxes. Shape (batch_size, num_anchor_boxes, 4)
     """
-    classification = [class_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    classification = layers.Concatenate(axis=1, name='classification')(classification)
+    # classification = [class_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    # classification = layers.Concatenate(axis=1, name='classification')(classification)
     
-    bbox_regression = [box_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    bbox_regression = layers.Concatenate(axis=1, name='regression')(bbox_regression)
+    # bbox_regression = [box_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    # bbox_regression = layers.Concatenate(axis=1, name='regression')(bbox_regression)
     
-    rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)
+    grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
+
+    grasp_regression = layers.Reshape((-1,5456*5))(grasp_regression)
+    # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
+    grasp_regression = layers.Dense(5, name='regression_d')(grasp_regression)
+    grasp_regression = layers.Flatten(name='regression')(grasp_regression)
+    # rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    # rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)
     
-    translation_raw = [translation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    translation_raw = layers.Concatenate(axis = 1, name='translation_raw_outputs')(translation_raw)
+    # translation_raw = [translation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    # translation_raw = layers.Concatenate(axis = 1, name='translation_raw_outputs')(translation_raw)
     
     #get anchors and apply predicted translation offsets to translation anchors
-    anchors, translation_anchors = anchors_for_shape((input_size, input_size), anchor_params = anchor_parameters)
-    translation_anchors_input = np.expand_dims(translation_anchors, axis = 0)
+    # anchors, translation_anchors = anchors_for_shape((input_size, input_size), anchor_params = anchor_parameters)
+    # translation_anchors_input = np.expand_dims(translation_anchors, axis = 0)
     
-    translation_xy_Tz = RegressTranslation(name = 'translation_regression')([translation_anchors_input, translation_raw])
-    translation = CalculateTxTy(name = 'translation')(translation_xy_Tz,
-                                                        fx = camera_parameters_input[:, 0],
-                                                        fy = camera_parameters_input[:, 1],
-                                                        px = camera_parameters_input[:, 2],
-                                                        py = camera_parameters_input[:, 3],
-                                                        tz_scale = camera_parameters_input[:, 4],
-                                                        image_scale = camera_parameters_input[:, 5])
+    # translation_xy_Tz = RegressTranslation(name = 'translation_regression')([translation_anchors_input, translation_raw])
+    # translation = CalculateTxTy(name = 'translation')(translation_xy_Tz,
+    #                                                     fx = camera_parameters_input[:, 0],
+    #                                                     fy = camera_parameters_input[:, 1],
+    #                                                     px = camera_parameters_input[:, 2],
+    #                                                     py = camera_parameters_input[:, 3],
+    #                                                     tz_scale = camera_parameters_input[:, 4],
+    #                                                     image_scale = camera_parameters_input[:, 5])
     
     # apply predicted 2D bbox regression to anchors
-    anchors_input = np.expand_dims(anchors, axis = 0)
-    bboxes = RegressBoxes(name='boxes')([anchors_input, bbox_regression[..., :4]])
-    bboxes = ClipBoxes(name='clipped_boxes')([image_input, bboxes])
+    # anchors_input = np.expand_dims(anchors, axis = 0)
+    # bboxes = RegressBoxes(name='boxes')([anchors_input, bbox_regression[..., :4]])
+    # bboxes = ClipBoxes(name='clipped_boxes')([image_input, bboxes])
     
     #concat rotation and translation outputs to transformation output to have a single output for transformation loss calculation
     #standard concatenate layer throws error that shapes does not match because translation shape dim 2 is known via translation_anchors and rotation shape dim 2 is None
     #so just use lambda layer with tf concat
-    transformation = layers.Lambda(lambda input_list: tf.concat(input_list, axis = -1), name="transformation")([rotation, translation])
+    # transformation = layers.Lambda(lambda input_list: tf.concat(input_list, axis = -1), name="transformation")([rotation, translation])
 
-    return classification, bbox_regression, rotation, translation, transformation, bboxes
+    return grasp_regression
     
 
 def print_models(*models):
@@ -833,3 +877,5 @@ def print_models(*models):
         print("\n\n")
         model.summary()
         print("\n\n")
+
+build_EfficientGrasp(0)
