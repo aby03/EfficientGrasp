@@ -18,7 +18,7 @@
             "program": "${workspaceFolder}/train.py",
             "python": "/home/aby/miniconda3/envs/EfficientGrasp/bin/python",
             "args" : ["--phi", "0",
-                      "--batch-size", "4",
+                      "--batch-size", "1",
                       "--lr", "1e-4",
                       "--weights", "imagenet",
                       "cornell", "/home/aby/Workspace/MTP/Datasets/Cornell/archive"]

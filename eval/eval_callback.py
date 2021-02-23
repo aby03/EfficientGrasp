@@ -163,20 +163,20 @@ def evaluate(
             print('Bbox true:', bbox_true)
         
         #Angle Diff
-        # true_sin = true_grasps[j][index][2]
-        # true_cos = true_grasps[j][index][3]
-        # if true_cos != 0:
-        #     true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
-        # else:
-        #     true_angle = 90
-        # pred_sin = pred_grasps[j][2]
-        # pred_cos = pred_grasps[j][3]
-        # if pred_cos != 0:
-        #     pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
-        # else:
-        #     pred_angle = 90
-        true_angle = np.arctan(true_grasps[j][index][2])
-        pred_angle = np.arctan(pred_grasps[j][2])
+        true_sin = true_grasps[j][index][2]
+        true_cos = true_grasps[j][index][3]
+        if true_cos != 0:
+            true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
+        else:
+            true_angle = 90
+        pred_sin = pred_grasps[j][2]
+        pred_cos = pred_grasps[j][3]
+        if pred_cos != 0:
+            pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
+        else:
+            pred_angle = 90
+        # true_angle = np.arctan(true_grasps[j][index][2])
+        # pred_angle = np.arctan(pred_grasps[j][2])
         
         angle_diff = np.abs(pred_angle - true_angle)
         angle_diff = min(angle_diff, 180.0 - angle_diff)
