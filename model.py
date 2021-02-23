@@ -528,7 +528,8 @@ class GraspNet(models.Model):
         self.width = width
         self.depth = depth
         self.num_anchors = num_anchors
-        self.num_values = 5 # x, y, tan_t, h, w
+        self.num_values = 6 # x, y, sin_t, cos_t, h, w
+        # self.num_values = 5 # x, y, tan_t, h, w
         options = {
             'kernel_size': 3,
             'strides': 1,
@@ -670,7 +671,7 @@ class GraspNet(models.Model):
 #             feature = self.activation(feature)
             
 #         rotation = self.initial_rotation(feature)
-        backbone_feature_maps
+        # backbone_feature_maps
 #             iterative_input = self.concat([feature, rotation])
 #             delta_rotation = self.iterative_submodel([iterative_input, level], level_py = self.level, iter_step_py = i)
 #             rotation = self.add([rotation, delta_rotation])
@@ -841,9 +842,9 @@ def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, inpu
     grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
     grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
 
-    grasp_regression = layers.Reshape((-1,5456*5))(grasp_regression)
+    grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression)
     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
-    grasp_regression = layers.Dense(5, name='regression_d')(grasp_regression)
+    grasp_regression = layers.Dense(6, name='regression_d')(grasp_regression)
     grasp_regression = layers.Flatten(name='regression')(grasp_regression)
     # rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
     # rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)

@@ -56,40 +56,46 @@ def bbox_to_grasp(box, side_length=512.0):
     # converting and scaling bounding boxes into grasps, g = {x, y, tan, h, w}
     x = (box[0] + (box[4] - box[0])/2)
     y = (box[1] + (box[5] - box[1])/2)
-    if box[2] == box[0]:
-        if box[3] - box[1] > 0:
-            # theta = math.pi/2
-            tan_t = 1e6
-        else:
-            # theta = -math.pi/2
-            tan_t = -1e6
-    else:
-        tan_t = (box[3] -box[1]) / (box[2] -box[0])
-    tan_t = min(tan_t, 1e6)
-    tan_t = max(tan_t, -1e6)
+    # if box[2] == box[0]:
+    #     if box[3] - box[1] > 0:
+    #         # theta = math.pi/2
+    #         tan_t = 1e6
+    #     else:
+    #         # theta = -math.pi/2
+    #         tan_t = -1e6
+    # else:
+    #     tan_t = (box[3] -box[1]) / (box[2] -box[0])
+    # tan_t = min(tan_t, 1e6)
+    # tan_t = max(tan_t, -1e6)
         # theta = np.arctan( (box[3] -box[1]) / (box[2] -box[0]) )
     w = np.sqrt((box[2] -box[0]) ** 2 + (box[3] -box[1]) ** 2)
     h = np.sqrt((box[6] -box[0]) ** 2 + (box[7] -box[1]) ** 2)
-    # sin_t = (box[3] - box[1]) / w
-    # cos_t = (box[2] - box[0]) / w
-    return x, y, tan_t, h, w
-    # return x, y, 10.0*sin_t, 10.0*cos_t, h, w
+    sin_t = (box[3] - box[1]) / w
+    cos_t = (box[2] - box[0]) / w
+    # return x, y, tan_t, h, w
+    return x/side_length, y/side_length, (sin_t+1)/2, (cos_t+1)/2, h/side_length, w/side_length
     # return 2*x/side_length-1, 2*y/side_length-1, sin_t, cos_t, h/side_length, w/side_length
 
-# def grasp_to_bbox(x, y, sin_t, cos_t, h, w, side_length=512.0):
-def grasp_to_bbox(x, y, tan_t, h, w, side_length=512.0):
+def grasp_to_bbox(x, y, sin_t, cos_t, h, w, side_length=512.0):
+# def grasp_to_bbox(x, y, tan_t, h, w, side_length=512.0):
     # x = (x+1) * side_length/2.0
     # y = (y+1) * side_length/2.0
     # h = (h) * side_length
     # w = (w) * side_length
     # sin_t /= 10.0
     # cos_t /= 10.0
-    # norm_fact = sin_t**2 + cos_t**2
-    # sin_t = sin_t / norm_fact
-    # cos_t = cos_t / norm_fact
-    theta = np.arctan(tan_t)
-    sin_t = np.sin(theta)
-    cos_t = np.cos(theta)
+    sin_t = sin_t * 2 - 1
+    cos_t = cos_t * 2 - 1
+    norm_fact = (sin_t**2 + cos_t**2) ** 0.5
+    sin_t = sin_t / norm_fact
+    cos_t = cos_t / norm_fact
+    x *= side_length
+    y *= side_length
+    h *= side_length
+    w *= side_length
+    # theta = np.arctan(tan_t)
+    # sin_t = np.sin(theta)
+    # cos_t = np.cos(theta)
     edge1 = (x -w/2*cos_t -h/2*sin_t, y -w/2*sin_t +h/2*cos_t)
     edge2 = (x +w/2*cos_t -h/2*sin_t, y +w/2*sin_t +h/2*cos_t)
     edge3 = (x +w/2*cos_t +h/2*sin_t, y +w/2*sin_t -h/2*cos_t)
