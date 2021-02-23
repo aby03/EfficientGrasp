@@ -62,7 +62,7 @@ def build_EfficientGrasp(phi,
                         freeze_bn = False,
                         score_threshold = 0.5,
                         anchor_parameters = None,
-                        print_architecture = True):
+                        print_architecture = False):
     """
     Builds an EfficientPose model
     Args:
@@ -100,18 +100,29 @@ def build_EfficientGrasp(phi,
     #build EfficientNet backbone
     backbone_feature_maps = backbone_class(input_tensor = image_input, freeze_bn = freeze_bn)
     
+    # # Debug
+    # backbone_model = models.Model(inputs = [image_input], outputs = [backbone_feature_maps], name = 'effnetb0')
+
     #build BiFPN
     fpn_feature_maps = build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, freeze_bn)
-    
+
+    # Debug
+    bifpn_model = models.Model(inputs = [image_input], outputs = [fpn_feature_maps], name = 'bifpn')
+
     #build subnets
-    grasp_net = build_subnets(num_classes,
-                            subnet_width,
-                            subnet_depth,
-                            subnet_num_iteration_steps,
-                            num_groups_gn,
-                            freeze_bn,
-                            num_anchors)
+    # grasp_net = build_subnets(num_classes,
+    #                         subnet_width,
+    #                         subnet_depth,
+    #                         subnet_num_iteration_steps,
+    #                         num_groups_gn,
+    #                         freeze_bn,
+    #                         num_anchors)
     
+    grasp_net = GraspNet(subnet_width,
+                        subnet_depth,
+                        freeze_bn=freeze_bn, 
+                        name='grasp_net')
+
     #apply subnets to feature maps
     grasp_regression = apply_subnets_to_feature_maps(grasp_net,
                                                             fpn_feature_maps,
@@ -133,7 +144,11 @@ def build_EfficientGrasp(phi,
     efficientgrasp_prediction = models.Model(inputs = [image_input], outputs = [grasp_regression], name = 'efficientgrasp_prediction')
     
     if print_architecture:
-        print_models(efficientgrasp_train, grasp_net)
+        # print(len(backbone_model.layers))
+        print(len(bifpn_model.layers))
+        print(len(efficientgrasp_train.layers))
+        print(len(grasp_net.layers))
+        # print_models(efficientgrasp_train, grasp_net)
         
     #create list with all layers to be able to load all layer weights because sometimes the whole subnet weight loading is skipped if the output shape does not match instead of skipping just the output layer
     all_layers = list(set(efficientgrasp_train.layers + grasp_net.layers))
@@ -587,11 +602,7 @@ class GraspNet(models.Model):
 #     def call(self, inputs, **kwargs):
 #         feature, level = inputs
 #         level_py = kwargs["level_py"]
-#         iter_step_py = kwargs["iter_step_py"]
-#         for i in range(self.depth):
-#             feature = self.convs[i](feature)
-#             feature = self.norm_layer[iter_step_py][i][level_py](feature)
-#             feature = self.activation(feature)
+#         iter_step_py = kwargs["iter_step_py"]backbone_feature_maps
 #         outputs = self.head(feature)
         
 #         return outputs
@@ -659,8 +670,7 @@ class GraspNet(models.Model):
 #             feature = self.activation(feature)
             
 #         rotation = self.initial_rotation(feature)
-        
-#         for i in range(self.num_iteration_steps):
+        backbone_feature_maps
 #             iterative_input = self.concat([feature, rotation])
 #             delta_rotation = self.iterative_submodel([iterative_input, level], level_py = self.level, iter_step_py = i)
 #             rotation = self.add([rotation, delta_rotation])
@@ -878,4 +888,4 @@ def print_models(*models):
         model.summary()
         print("\n\n")
 
-build_EfficientGrasp(0)
+build_EfficientGrasp(0, print_architecture=True)

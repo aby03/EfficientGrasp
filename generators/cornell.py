@@ -17,7 +17,7 @@ def central_square_crop(image, side=None):
     begin_w = int(np.maximum(0, w - side) / 2)
     return image[begin_h:begin_h+side, begin_w:begin_w+side, ...]
 
-def load_and_preprocess_img(filename, side_after_crop=None, resize_height=224, resize_width=224):
+def load_and_preprocess_img(filename, side_after_crop=None, resize_height=512, resize_width=512):
     # Load Image
     image = Image.open(filename)
     # convert image to numpy array
@@ -27,7 +27,7 @@ def load_and_preprocess_img(filename, side_after_crop=None, resize_height=224, r
     # Convert pixel values from range (0, 255) to range (-1, 1)
     data = np.subtract(data, 127.5) # (0,255) to (-127.5,127.5)
     data = np.divide(data, 127.5) # (-1, 1)
-    # Resize Image to (224, 224)
+    # Resize Image to (512, 512)
     data = resize(data, (resize_height, resize_width))
     return data
 

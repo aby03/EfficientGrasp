@@ -19,7 +19,7 @@ def parse_args(args):
     Parse the arguments.
     """
     date_and_time = time.strftime("%d_%m_%Y_%H_%M_%S")
-    parser = argparse.ArgumentParser(description = 'Simple EfficientPose training script.')
+    parser = argparse.ArgumentParser(description = 'Simple EfficientGrasp training script.')
     subparsers = parser.add_subparsers(help = 'Arguments for specific dataset types.', dest = 'dataset_type')
     subparsers.required = True
     
@@ -116,7 +116,8 @@ def main(args = None):
 
     mse = tf.keras.losses.MeanSquaredError()
     # compile model
-    model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
+    # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
+    model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001), 
                   loss={'regression': mse})
 
     # create the callbacks
