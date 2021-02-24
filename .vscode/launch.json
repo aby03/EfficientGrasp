@@ -20,6 +20,8 @@
             "args" : ["--phi", "0",
                       "--batch-size", "1",
                       "--lr", "1e-4",
+                      "--no-snapshots",
+                      "--gpu", "0",
                       "--weights", "imagenet",
                       "cornell", "/home/aby/Workspace/MTP/Datasets/Cornell/archive"]
         }       

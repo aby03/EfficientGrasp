@@ -44,6 +44,7 @@ from tensorflow.keras import layers
 from tensorflow.keras import initializers
 from tensorflow.keras import models
 from tensorflow.keras import backend
+from tensorflow.keras import regularizers
 from tfkeras import EfficientNetB0, EfficientNetB1, EfficientNetB2, EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6
 
 from layers import ClipBoxes, RegressBoxes, FilterDetections, wBiFPNAdd, BatchNormalization, RegressTranslation, CalculateTxTy, GroupNormalization
@@ -263,22 +264,22 @@ def prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, freeze_bn):
     """
     P3_in = C3
     P3_in = layers.Conv2D(num_channels, kernel_size = 1, padding = 'same', name = 'fpn_cells/cell_0/fnode3/resample_0_0_8/conv2d')(P3_in)
-    P3_in = BatchNormalization(freeze=freeze_bn, momentum=MOMENTUM, epsilon=EPSILON, name='fpn_cells/cell_0/fnode3/resample_0_0_8/bn')(P3_in)
+    P3_in = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode3/resample_0_0_8/bn')(P3_in)
     
     P4_in = C4
     P4_in_1 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode2/resample_0_1_7/conv2d')(P4_in)
-    P4_in_1 = BatchNormalization(freeze=freeze_bn, momentum=MOMENTUM, epsilon=EPSILON, name='fpn_cells/cell_0/fnode2/resample_0_1_7/bn')(P4_in_1)
+    P4_in_1 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode2/resample_0_1_7/bn')(P4_in_1)
     P4_in_2 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode4/resample_0_1_9/conv2d')(P4_in)
-    P4_in_2 = BatchNormalization(freeze=freeze_bn, momentum=MOMENTUM, epsilon=EPSILON, name='fpn_cells/cell_0/fnode4/resample_0_1_9/bn')(P4_in_2)
+    P4_in_2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode4/resample_0_1_9/bn')(P4_in_2)
     
     P5_in = C5
     P5_in_1 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode1/resample_0_2_6/conv2d')(P5_in)
-    P5_in_1 = BatchNormalization(freeze=freeze_bn, momentum=MOMENTUM, epsilon=EPSILON, name='fpn_cells/cell_0/fnode1/resample_0_2_6/bn')(P5_in_1)
+    P5_in_1 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode1/resample_0_2_6/bn')(P5_in_1)
     P5_in_2 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode5/resample_0_2_10/conv2d')(P5_in)
-    P5_in_2 = BatchNormalization(freeze=freeze_bn, momentum=MOMENTUM, epsilon=EPSILON, name='fpn_cells/cell_0/fnode5/resample_0_2_10/bn')(P5_in_2)
+    P5_in_2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode5/resample_0_2_10/bn')(P5_in_2)
     
     P6_in = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='resample_p6/conv2d')(C5)
-    P6_in = BatchNormalization(freeze=freeze_bn, momentum=MOMENTUM, epsilon=EPSILON, name='resample_p6/bn')(P6_in)
+    P6_in = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='resample_p6/bn')(P6_in)
     P6_in = layers.MaxPooling2D(pool_size=3, strides=2, padding='same', name='resample_p6/maxpool')(P6_in)
     
     P7_in = layers.MaxPooling2D(pool_size=3, strides=2, padding='same', name='resample_p7/maxpool')(P6_in)
@@ -383,7 +384,7 @@ def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn = Fal
        The depthwise separable convolution block
     """
     f1 = layers.SeparableConv2D(num_channels, kernel_size = kernel_size, strides = strides, padding = 'same', use_bias = True, name = f'{name}/conv')
-    f2 = BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{name}/bn')
+    f2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{name}/bn')
     return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
 
 
@@ -545,7 +546,7 @@ class GraspNet(models.Model):
         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/box-{i}', **options) for i in range(self.depth)]
         self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/box-predict', **options)
         
-        self.bns = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+        self.bns = [[GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
         self.reshape = layers.Reshape((-1, self.num_values))
         self.level = 0
@@ -844,7 +845,16 @@ def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, inpu
 
     grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression)
     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
-    grasp_regression = layers.Dense(6, name='regression_d')(grasp_regression)
+    grasp_regression = layers.Dense(6,
+                                    kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+                                    bias_regularizer=regularizers.l2(1e-4),
+                                    activity_regularizer=regularizers.l2(1e-5),
+                                    name='regression_d1')(grasp_regression)
+    # grasp_regression = layers.Dense(6,
+    #                                 kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+    #                                 bias_regularizer=regularizers.l2(1e-4),
+    #                                 activity_regularizer=regularizers.l2(1e-5),
+    #                                 name='regression_d2')(grasp_regression)
     grasp_regression = layers.Flatten(name='regression')(grasp_regression)
     # rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
     # rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)

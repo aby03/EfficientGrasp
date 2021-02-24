@@ -8,7 +8,7 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 
 from model import build_EfficientGrasp
-from losses import smooth_l1, focal, transformation_loss
+from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 
 from custom_load_weights import custom_load_weights
@@ -38,7 +38,7 @@ def parse_args(args):
     parser.add_argument('--no-6dof-augmentation', help = 'Do not use 6DoF augmentation', action = 'store_true')
     parser.add_argument('--phi', help = 'Hyper parameter phi', default = 0, type = int, choices = (0, 1, 2, 3, 4, 5, 6))
     parser.add_argument('--gpu', help = 'Id of the GPU to use (as reported by nvidia-smi).')
-    parser.add_argument('--epochs', help = 'Number of epochs to train.', type = int, default = 500)
+    parser.add_argument('--epochs', help = 'Number of epochs to train.', type = int, default = 100)
     parser.add_argument('--steps', help = 'Number of steps per epoch.', type = int, default = int(179 * 10))
     parser.add_argument('--snapshot-path', help = 'Path to store snapshots of models during training', default = os.path.join("checkpoints", date_and_time))
     parser.add_argument('--tensorboard-dir', help = 'Log directory for Tensorboard output', default = os.path.join("logs", date_and_time))
@@ -118,7 +118,7 @@ def main(args = None):
     # compile model
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
     model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001), 
-                  loss={'regression': mse})
+                  loss={'regression': grasp_loss_bt()})
 
     # create the callbacks
     callbacks = create_callbacks(
