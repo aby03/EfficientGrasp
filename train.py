@@ -237,7 +237,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir = tensorboard_dir,
             histogram_freq = 0,
-            batch_size = args.batch_size,
+            # batch_size = args.batch_size,
             write_graph = True,
             write_grads = False,
             write_images = False,
@@ -256,7 +256,8 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     if args.snapshots:
         # ensure directory created first; otherwise h5py will error after epoch.
         os.makedirs(snapshot_path, exist_ok = True)
-        checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}.h5'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
+        # checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}.h5'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
+        checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
                                                      verbose = 1,
                                                      #save_weights_only = True,
                                                     #  save_best_only = True,

@@ -219,4 +219,4 @@ class CornellGenerator(Sequence):
 
             # Store sample
             X[i,] = image
-        return X, y_grasp
+        return X, np.asarray(y_grasp)
