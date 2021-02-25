@@ -60,6 +60,10 @@ def grasp_loss_bt(theta_err_wt = 1):
 # min loss among all grasps
 def grasp_loss_min(theta_err_wt = 1):
     def _grasp_loss_min(y_true, y_pred):
+        '''
+            y_true: Shape (B, Num_grasps, 6)
+            y_pred: (B, 6)
+        '''
         # For an image
         tot_loss = 0
         for i in range(y_true.shape[0]):
@@ -69,7 +73,7 @@ def grasp_loss_min(theta_err_wt = 1):
             for j in range(y_true.shape[1]):
                 y_true_grasp = y_true[i,j,:]
                 # Calculate loss
-                curr_loss = np.sum(np.square(y_true_grasp - y_pred_img))
+                curr_loss = np.sum(np.square(y_true_grasp - y_pred_img))  # Divide by 6 may be there. Check later
                 if curr_loss < min_loss:
                     min_loss = curr_loss
             tot_loss += min_loss

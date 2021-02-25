@@ -13,20 +13,20 @@ def allow_gpu_growth_memory():
     config.gpu_options.allow_growth = True
     _ = tf.Session(config = config)
 
-# Set before running
-allow_gpu_growth_memory()
+# # Set before running
+# allow_gpu_growth_memory()
 
-# Build Model
-model, prediction_model, all_layers = build_EfficientGrasp(0,
-                                                        num_classes = 10,
-                                                        num_anchors = 1,
-                                                        freeze_bn = not False,
-                                                        score_threshold = 0.5,
-                                                        print_architecture=False)
-print("Done!")
+# # Build Model
+# model, prediction_model, all_layers = build_EfficientGrasp(0,
+#                                                         num_classes = 10,
+#                                                         num_anchors = 1,
+#                                                         freeze_bn = not False,
+#                                                         score_threshold = 0.5,
+#                                                         print_architecture=False)
 
-# load pretrained weights
-model.load_weights('checkpoints/25_02_2021_16_17_24/phi_0_cornell_best_val_grasp_loss.h5', by_name=True)
+# # load pretrained weights
+# model.load_weights('checkpoints/25_02_2021_16_17_24/phi_0_cornell_best_val_grasp_loss.h5', by_name=True)
+# print("Done!")
 
 ## TEST ON SINGLE IMAGE
 filename = '/home/aby/Workspace/MTP/Datasets/Cornell/archive/06/pcd0600r.png'
@@ -46,13 +46,14 @@ with open(dataset+'/train.txt', 'r') as filehandle:
 #     # print(test_out)
 #     # print(type(test_out[0]))
 #     # print(test_out.shape)
-
+import math
+y_grasp_all = []
 # Train Print all Grasps
+max_grasps = 0
 for i, filename in enumerate(train_data):
     bbox_file = filename[:-5]+'cpos.txt'
     bboxes = load_bboxes(bbox_file)
     # Pick ALL bboxes
-    y_grasp_all = []
     for r in range(int(len(bboxes)/8)):
         q = 8*r
         bbox = bboxes[q:q+8]
@@ -65,13 +66,20 @@ for i, filename in enumerate(train_data):
 
         # Convert to Grasp
         grasp = bbox_to_grasp(bbox)
-
+        if math.isnan(grasp[0]):
+            print("Ghapla", i, " ", j)
+            print(filename)
         # Store 1 grasp
-        print("# Grasp Label ", i, " : ", r, " #", grasp)
+        # print("# Grasp Label ", i, " : ", r, " #", grasp)
         y_grasp_all.append(grasp)
     # Store all grasps for an image
     # y_grasp.append(y_grasp_all)
-
+# print(max_grasps)
+grasp_np = np.asarray(y_grasp_all)
+print(grasp_np.shape)
+# print(np.argwhere(np.isnan(grasp_np)))
+print(np.mean(grasp_np, axis = 0))
+print(np.std(grasp_np, axis = 0))
 exit()
 
 # weights_list = []

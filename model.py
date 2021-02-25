@@ -858,8 +858,8 @@ def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, inpu
                                     # bias_regularizer=regularizers.l2(1e-4),
                                     # activity_regularizer=regularizers.l2(1e-5),
                                     name='regression_d2')(grasp_regression)
-    grasp_regression = layers.Flatten(name='regression_f')(grasp_regression)
-    grasp_regression = layers.Lambda(lambda x: tf.nn.swish(x), name='regression')(grasp_regression)
+    grasp_regression = layers.Flatten(name='regression')(grasp_regression)
+    # grasp_regression = layers.Lambda(lambda x: tf.nn.swish(x), name='regression')(grasp_regression)
     # rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
     # rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)
     

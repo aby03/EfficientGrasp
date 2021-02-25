@@ -8,6 +8,14 @@ import math
 
 image_sizes = [512, 640, 768, 896, 1024, 1280, 1408]
 
+## DATASET VARIABLES
+## Accurate
+# GRASP_MEAN = [2.41776629e+02, 2.91271791e+02, 1.66374625e-01, 1.09318981e-01, 2.73294631e+01, 4.62548973e+01]
+# GRASP_STD = [26.8794504,  42.2205626,   0.71402385,  0.67122186, 11.29402456, 21.29478423]
+## Rounded off
+GRASP_MEAN = [241.8, 291.3, 0.1664, 0.1093, 27.33, 46.25]
+GRASP_STD = [26.88,  42.22,   0.7140,  0.6712, 11.29, 21.29]
+
 # Image Preprocessing
 def central_square_crop(image, side=None):
     h, w = image.shape[0], image.shape[1]
@@ -75,30 +83,31 @@ def bbox_to_grasp(box, side_length=512.0):
     sin_t = (box[3] - box[1]) / w
     cos_t = (box[2] - box[0]) / w
     # return x, y, tan_t, h, w
-    fact = 1.0
-    delta = 0.1
-    return x/side_length*fact + delta, y/side_length*fact + delta, (sin_t+1)/2*fact + delta, (cos_t+1)/2*fact + delta, h/side_length*fact + delta, w/side_length*fact + delta
+    x = (x-GRASP_MEAN[0])/GRASP_STD[0]
+    y = (y-GRASP_MEAN[1])/GRASP_STD[1]
+    sin_t = (sin_t-GRASP_MEAN[2])/GRASP_STD[2]
+    cos_t = (cos_t-GRASP_MEAN[3])/GRASP_STD[3]
+    h = (h-GRASP_MEAN[4])/GRASP_STD[4]
+    w = (w-GRASP_MEAN[5])/GRASP_STD[5]
+    return x, y, sin_t, cos_t, h, w
+    # return x/side_length*fact + delta, y/side_length*fact + delta, (sin_t+1)/2*fact + delta, (cos_t+1)/2*fact + delta, h/side_length*fact + delta, w/side_length*fact + delta
     # return 2*x/side_length-1, 2*y/side_length-1, sin_t, cos_t, h/side_length, w/side_length
 
 def grasp_to_bbox(x, y, sin_t, cos_t, h, w, side_length=512.0):
 # def grasp_to_bbox(x, y, tan_t, h, w, side_length=512.0):
-    # x = (x+1) * side_length/2.0
-    # y = (y+1) * side_length/2.0
-    # h = (h) * side_length
-    # w = (w) * side_length
-    # sin_t /= 10.0
-    # cos_t /= 10.0
-    fact = 1.0
-    delta = 0.1
-    sin_t = (sin_t-delta) * 2 /fact - 1
-    cos_t = (cos_t-delta) * 2 /fact - 1
+    x = x * GRASP_STD[0] + GRASP_MEAN[0]
+    y = y * GRASP_STD[1] + GRASP_MEAN[1]
+    sin_t = sin_t * GRASP_STD[2] + GRASP_MEAN[2]
+    cos_t = cos_t * GRASP_STD[3] + GRASP_MEAN[3]
+    h = h * GRASP_STD[4] + GRASP_MEAN[4]
+    w = w * GRASP_STD[5] + GRASP_MEAN[5]
     norm_fact = (sin_t**2 + cos_t**2) ** 0.5
     sin_t = sin_t / norm_fact
     cos_t = cos_t / norm_fact
-    x = (x-delta) * side_length /fact
-    y = (y-delta) * side_length /fact
-    h = (h-delta) * side_length /fact
-    w = (w-delta) * side_length /fact
+    # x = (x-delta) * side_length /fact
+    # y = (y-delta) * side_length /fact
+    # h = (h-delta) * side_length /fact
+    # w = (w-delta) * side_length /fact
     # theta = np.arctan(tan_t)
     # sin_t = np.sin(theta)
     # cos_t = np.cos(theta)
@@ -169,7 +178,6 @@ class CornellGenerator(Sequence):
                 bboxes = load_bboxes(bbox_file)
                 # Pick 1 random bbox
                 r = 8*np.random.randint(len(bboxes)/8)
-                r = min(2, int(len(bboxes)/8))
                 bbox = bboxes[r:r+8]
                 # Modify bbox acc to img scaling
                 for j in range(len(bbox)):
