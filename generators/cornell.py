@@ -120,11 +120,12 @@ def grasp_to_bbox(x, y, sin_t, cos_t, h, w, side_length=512.0):
 # class CornellGenerator(keras.utils.Sequence):
 class CornellGenerator(Sequence):
     'Generates data for Keras'
-    def __init__(self, list_IDs, phi=0, batch_size=1, dim=(512,512), n_channels=3,
+    def __init__(self, dataset, list_IDs, phi=0, batch_size=1, dim=(512,512), n_channels=3,
                  n_classes=10, shuffle=True, train=True):
         'Initialization'
         self.dim = (image_sizes[phi], image_sizes[phi])
         self.batch_size = batch_size
+        self.dataset = dataset
         self.list_IDs = list_IDs
         self.n_channels = n_channels
         self.n_classes = n_classes
@@ -169,6 +170,7 @@ class CornellGenerator(Sequence):
 
         # Generate data
         for i, filename in enumerate(list_IDs_temp):
+            filename = self.dataset + filename
             # Load Image
             image = load_and_preprocess_img(filename, resize_height=512, resize_width=512)
 

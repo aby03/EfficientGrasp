@@ -15,10 +15,10 @@ train_img = 0
 for i in folders:
     for name in glob.glob(os.path.join(dataset, i, 'pcd'+i+'*r.png')):
         if count % 5 == 0:
-            valid_filenames.append(name)
+            valid_filenames.append(name[len(dataset):])
             valid_img +=1
         else:
-            train_filenames.append(name)
+            train_filenames.append(name[len(dataset):])
             train_img +=1
         count +=1
 
