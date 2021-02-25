@@ -23,7 +23,7 @@ def load_and_preprocess_img(filename, side_after_crop=None, resize_height=512, r
     # convert image to numpy array
     data = np.asarray(image)
     # Apply Central Crop
-    data = central_square_crop(data, side_after_crop)
+    # data = central_square_crop(data, side_after_crop)
     # Convert pixel values from range (0, 255) to range (-1, 1)
     data = np.subtract(data, 127.5) # (0,255) to (-127.5,127.5)
     data = np.divide(data, 127.5) # (-1, 1)
@@ -41,15 +41,17 @@ def load_bboxes(name):
     return bboxes
 
 def proc_x(x, side_after_crop, init_width, width_after_resize):
-    if side_after_crop < init_width:
-        x = x - (init_width - side_after_crop) / 2
-    x = x * width_after_resize / side_after_crop
+    # if side_after_crop < init_width:
+    #     x = x - (init_width - side_after_crop) / 2
+    # x = x * width_after_resize / side_after_crop
+    x = x * width_after_resize / init_width
     return x
 
 def proc_y(y, side_after_crop, init_height, height_after_resize):
-    if side_after_crop < init_height:
-        y = y - (init_height - side_after_crop) / 2
-    y = y * height_after_resize / side_after_crop
+    # if side_after_crop < init_height:
+    #     y = y - (init_height - side_after_crop) / 2
+    # y = y * height_after_resize / side_after_crop
+    y = y * height_after_resize / init_height
     return y
 
 def bbox_to_grasp(box, side_length=512.0):
@@ -73,7 +75,9 @@ def bbox_to_grasp(box, side_length=512.0):
     sin_t = (box[3] - box[1]) / w
     cos_t = (box[2] - box[0]) / w
     # return x, y, tan_t, h, w
-    return x/side_length, y/side_length, (sin_t+1)/2, (cos_t+1)/2, h/side_length, w/side_length
+    fact = 1.0
+    delta = 0.1
+    return x/side_length*fact + delta, y/side_length*fact + delta, (sin_t+1)/2*fact + delta, (cos_t+1)/2*fact + delta, h/side_length*fact + delta, w/side_length*fact + delta
     # return 2*x/side_length-1, 2*y/side_length-1, sin_t, cos_t, h/side_length, w/side_length
 
 def grasp_to_bbox(x, y, sin_t, cos_t, h, w, side_length=512.0):
@@ -84,15 +88,17 @@ def grasp_to_bbox(x, y, sin_t, cos_t, h, w, side_length=512.0):
     # w = (w) * side_length
     # sin_t /= 10.0
     # cos_t /= 10.0
-    sin_t = sin_t * 2 - 1
-    cos_t = cos_t * 2 - 1
+    fact = 1.0
+    delta = 0.1
+    sin_t = (sin_t-delta) * 2 /fact - 1
+    cos_t = (cos_t-delta) * 2 /fact - 1
     norm_fact = (sin_t**2 + cos_t**2) ** 0.5
     sin_t = sin_t / norm_fact
     cos_t = cos_t / norm_fact
-    x *= side_length
-    y *= side_length
-    h *= side_length
-    w *= side_length
+    x = (x-delta) * side_length /fact
+    y = (y-delta) * side_length /fact
+    h = (h-delta) * side_length /fact
+    w = (w-delta) * side_length /fact
     # theta = np.arctan(tan_t)
     # sin_t = np.sin(theta)
     # cos_t = np.cos(theta)
@@ -163,6 +169,7 @@ class CornellGenerator(Sequence):
                 bboxes = load_bboxes(bbox_file)
                 # Pick 1 random bbox
                 r = 8*np.random.randint(len(bboxes)/8)
+                r = min(2, int(len(bboxes)/8))
                 bbox = bboxes[r:r+8]
                 # Modify bbox acc to img scaling
                 for j in range(len(bbox)):

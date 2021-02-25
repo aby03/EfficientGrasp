@@ -1,6 +1,7 @@
 import argparse
 import time
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 import sys
 
 import tensorflow as tf
@@ -8,6 +9,7 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 
 from model import build_EfficientGrasp
+# from model_grasp import efficientgrasp
 from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 
@@ -91,6 +93,15 @@ def main(args = None):
                                                               freeze_bn = not args.no_freeze_bn,
                                                               score_threshold = args.score_threshold,
                                                               print_architecture=False)
+
+    # model, prediction_model, all_layers = efficientgrasp(args.phi,
+    #                                                     num_classes = num_classes,
+    #                                                     num_anchors = num_anchors,
+    #                                                     freeze_bn = not args.no_freeze_bn,
+    #                                                     score_threshold = args.score_threshold)
+    print("Done!")
+
+
     print("Done!")
     # load pretrained weights
     if args.weights:
@@ -118,7 +129,7 @@ def main(args = None):
     # compile model
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
     model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001), 
-                  loss={'regression': grasp_loss_bt()})
+                  loss={'regression': mse})
 
     # create the callbacks
     callbacks = create_callbacks(
@@ -253,16 +264,16 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
                                                      mode = mode)
         callbacks.append(checkpoint)
 
-    # callbacks.append(keras.callbacks.ReduceLROnPlateau(
-    #     monitor    = 'MixedAveragePointDistanceMean_in_mm',
-    #     factor     = 0.5,
-    #     patience   = 25,
-    #     verbose    = 1,
-    #     mode       = 'min',
-    #     min_delta  = 0.0001,
-    #     cooldown   = 0,
-    #     min_lr     = 1e-7
-    # ))
+    callbacks.append(keras.callbacks.ReduceLROnPlateau(
+        monitor    = 'loss',
+        factor     = 0.5,
+        patience   = 5,
+        verbose    = 1,
+        mode       = 'min',
+        min_delta  = 0.0001,
+        cooldown   = 0,
+        min_lr     = 1e-7
+    ))
 
     return callbacks
 

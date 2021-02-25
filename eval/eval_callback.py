@@ -123,7 +123,7 @@ def evaluate(
     """
     # gather all detections and annotations
     pred_grasps, true_grasps = _get_detections(generator, model, save_path=save_path)
-
+    
     # Grasp Loss
     loss_v = []
     min_loss_index = []
