@@ -13,7 +13,8 @@ count = 2
 valid_img = 0
 train_img = 0
 for i in folders:
-    for name in glob.glob(os.path.join(dataset, i, 'pcd'+i+'*r.png')):
+    # r.png for RGB, z.png for RGD in the end
+    for name in glob.glob(os.path.join(dataset, i, 'pcd'+i+'*z.png')):
         if count % 5 == 0:
             valid_filenames.append(name[len(dataset):])
             valid_img +=1
