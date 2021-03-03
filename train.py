@@ -16,6 +16,9 @@ from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 from custom_load_weights import custom_load_weights
 import json
 
+from generators.cornell import CornellGenerator
+from dataset_processing.cornell_data import CornellDataset
+
 def parse_args(args):
     """
     Parse the arguments.
@@ -126,14 +129,17 @@ def main(args = None):
             model.layers[i].trainable = False
 
     mse = tf.keras.losses.MeanSquaredError()
-    # compile model
+    
+    # compile model    
+    # Default Adam optimizer
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
-    # import runai.ga.keras as r_ga
-    # Adam_ga = r_ga.optimizers.Optimizer(Adam(lr = args.lr, clipvalue = 0.001), steps=2)
-    # model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001),
-    custom_adam = Adam_accumulate(lr=args.lr, accum_iters=16)
-    model.compile(optimizer=custom_adam, 
+    model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001),
                   loss={'regression': mse})
+
+    # # Accumulate adam optimizer
+    # custom_adam = Adam_accumulate(lr=args.lr, accum_iters=16)
+    # model.compile(optimizer=custom_adam, 
+    #               loss={'regression': mse})
 
     # create the callbacks
     callbacks = create_callbacks(
@@ -299,8 +305,6 @@ def create_generators(args):
     }
     
     if args.dataset_type == 'cornell':
-        from generators.cornell import CornellGenerator
-
         dataset = args.cornell_path
 
         # open output file for reading
@@ -312,13 +316,13 @@ def create_generators(args):
         # # Shuffle the list of image paths
         # np.random.shuffle(train_data)
 
-        train_generator = CornellGenerator(
+        train_generator = CornellDataset(
             dataset,
             train_data,
             **common_args
         )
 
-        validation_generator = CornellGenerator(
+        validation_generator = CornellDataset(
             dataset,
             valid_data,
             train=False,

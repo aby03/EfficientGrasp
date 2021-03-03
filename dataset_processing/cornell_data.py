@@ -2,7 +2,7 @@ import glob
 import os
 
 #from utils.dataset_processing 
-import grasp, image
+from dataset_processing import grasp, image
 # from .grasp_data import GraspDatasetBase
 import numpy as np
 import random
@@ -38,7 +38,7 @@ class CornellDataset(Sequence):
         # Generator
         self.output_size = output_size
         self.batch_size = batch_size
-        self.dataset = dataset
+        self.dataset = dataset_path
         self.list_IDs = list_IDs
         self.n_channels = n_channels
         self.n_classes = n_classes

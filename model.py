@@ -533,8 +533,8 @@ class GraspNet(models.Model):
         self.width = width
         self.depth = depth
         self.num_anchors = num_anchors
-        self.num_values = 6 # x, y, sin_t, cos_t, h, w
-        # self.num_values = 5 # x, y, tan_t, h, w
+        # self.num_values = 6 # x, y, sin_t, cos_t, h, w
+        self.num_values = 5 # x, y, tan_t, h, w
         options = {
             'kernel_size': 3,
             'strides': 1,
@@ -847,14 +847,14 @@ def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, inpu
     grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
     grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
 
-    grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
+    grasp_regression = layers.Reshape((-1,5456*5))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
     grasp_regression = layers.Dense(1024,
                                     # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
                                     # bias_regularizer=regularizers.l2(1e-4),
                                     # activity_regularizer=regularizers.l2(1e-5),
                                     name='regression_d1')(grasp_regression)
-    grasp_regression = layers.Dense(6,
+    grasp_regression = layers.Dense(5,
                                     # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
                                     # bias_regularizer=regularizers.l2(1e-4),
                                     # activity_regularizer=regularizers.l2(1e-5),
