@@ -180,6 +180,7 @@ class CornellGenerator(Sequence):
                 bboxes = load_bboxes(bbox_file)
                 # Pick 1 random bbox
                 r = 8*np.random.randint(len(bboxes)/8)
+                # r = 0 # HARDCODED FOR TESTING
                 bbox = bboxes[r:r+8]
                 # Modify bbox acc to img scaling
                 for j in range(len(bbox)):

@@ -168,11 +168,12 @@ def get_scaled_parameters(phi):
     """
     #info tuples with scalable parameters
     image_sizes = (512, 640, 768, 896, 1024, 1280, 1408)
-    bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
+    # bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
+    bifpn_widths = (224, 88, 112, 160, 224, 288, 384)
     # bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     # subnet_depths = (3, 3, 3, 4, 4, 4, 5)
-    subnet_depths = (3, 3, 3, 4, 4, 4, 5)
+    subnet_depths = (6, 3, 3, 4, 4, 4, 5)
     subnet_iteration_steps = (1, 1, 1, 2, 2, 2, 3)
     num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
     backbones = (EfficientNetB0,
@@ -848,11 +849,11 @@ def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, inpu
 
     grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
-    # grasp_regression = layers.Dense(1024,
-    #                                 # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
-    #                                 # bias_regularizer=regularizers.l2(1e-4),
-    #                                 # activity_regularizer=regularizers.l2(1e-5),
-    #                                 name='regression_d1')(grasp_regression)
+    grasp_regression = layers.Dense(1024,
+                                    # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+                                    # bias_regularizer=regularizers.l2(1e-4),
+                                    # activity_regularizer=regularizers.l2(1e-5),
+                                    name='regression_d1')(grasp_regression)
     grasp_regression = layers.Dense(6,
                                     # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
                                     # bias_regularizer=regularizers.l2(1e-4),

@@ -123,6 +123,8 @@ def evaluate(
     """
     # gather all detections and annotations
     pred_grasps, true_grasps = _get_detections(generator, model, save_path=save_path)
+
+    mse = tf.keras.losses.MeanSquaredError()
     
     # Grasp Loss
     loss_v = []
@@ -134,6 +136,7 @@ def evaluate(
         # For a grasp
         for i in range(len(true_grasps[j])):
             cur_loss = grasp_loss(true_grasps[j][i], pred_grasps[j])
+            # cur_loss = mse(np.asarray(true_grasps[j][i])[np.newaxis,:], np.asarray(pred_grasps[j])[np.newaxis,:])
             if cur_loss < min_loss:
                 min_loss = cur_loss
                 min_index = i

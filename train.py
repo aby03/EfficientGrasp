@@ -6,7 +6,7 @@ import sys
 
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam, Adam_accumulate
 
 from model import build_EfficientGrasp
 # from model_grasp import efficientgrasp
@@ -128,7 +128,11 @@ def main(args = None):
     mse = tf.keras.losses.MeanSquaredError()
     # compile model
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
-    model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001), 
+    # import runai.ga.keras as r_ga
+    # Adam_ga = r_ga.optimizers.Optimizer(Adam(lr = args.lr, clipvalue = 0.001), steps=2)
+    # model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001),
+    custom_adam = Adam_accumulate(lr=args.lr, accum_iters=16)
+    model.compile(optimizer=custom_adam, 
                   loss={'regression': mse})
 
     # create the callbacks
@@ -164,7 +168,7 @@ def main(args = None):
     TEST = False
     if TEST:
         # start testing
-        return model.fit_generator(
+        model.fit_generator(
             generator = train_generator,
             steps_per_epoch = 1,
             initial_epoch = 0,
@@ -178,7 +182,7 @@ def main(args = None):
         )
     else:
         # start training
-        return model.fit_generator(
+        model.fit_generator(
             generator = train_generator,
             steps_per_epoch = len(train_generator),
             initial_epoch = 0,
@@ -190,7 +194,8 @@ def main(args = None):
             max_queue_size = args.max_queue_size,
             validation_data = validation_generator
         )
-
+    model.save(os.path.join(args.snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}_finish'.format(phi = str(args.phi), metric = "val_grasp_loss", dataset_type = args.dataset_type)))
+    return
 
 def allow_gpu_growth_memory():
     """
@@ -265,16 +270,16 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
                                                      mode = mode)
         callbacks.append(checkpoint)
 
-    callbacks.append(keras.callbacks.ReduceLROnPlateau(
-        monitor    = 'loss',
-        factor     = 0.5,
-        patience   = 5,
-        verbose    = 1,
-        mode       = 'min',
-        min_delta  = 0.0001,
-        cooldown   = 0,
-        min_lr     = 1e-7
-    ))
+    # callbacks.append(keras.callbacks.ReduceLROnPlateau(
+    #     monitor    = 'loss',
+    #     factor     = 0.5,
+    #     patience   = 5,
+    #     verbose    = 1,
+    #     mode       = 'min',
+    #     min_delta  = 0.0001,
+    #     cooldown   = 0,
+    #     min_lr     = 1e-7
+    # ))
 
     return callbacks
 
