@@ -1,20 +1,26 @@
 import tensorflow as tf
-from model import build_EfficientGrasp
-import json
-import numpy as np
-from generators.cornell import load_and_preprocess_img, proc_x, proc_y, load_bboxes, bbox_to_grasp
 
 def allow_gpu_growth_memory():
     """
         Set allow growth GPU memory to true
 
     """
+    # Eager execution
+    tf.compat.v1.enable_eager_execution()
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     _ = tf.Session(config = config)
 
-# Set before running
+# Set before importing and running
 allow_gpu_growth_memory()
+
+# Import rest
+from model import build_EfficientGrasp
+import json
+import numpy as np
+from generators.cornell import load_and_preprocess_img, proc_x, proc_y, load_bboxes, bbox_to_grasp
+import matplotlib.pyplot as plt
+from tensorflow import keras
 
 # Build Model
 model, prediction_model, all_layers = build_EfficientGrasp(0,
@@ -25,7 +31,7 @@ model, prediction_model, all_layers = build_EfficientGrasp(0,
                                                         print_architecture=False)
 
 # load pretrained weights
-model.load_weights('checkpoints/25_02_2021_16_17_24/phi_0_cornell_best_val_grasp_loss.h5', by_name=True)
+model.load_weights('checkpoints/05_03_2021_03_19_47/phi_0_cornell_best_val_grasp_loss_finish.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE
@@ -36,13 +42,54 @@ dataset = '/home/aby/Workspace/MTP/Datasets/Cornell/archive'
 with open(dataset+'/train.txt', 'r') as filehandle:
     train_data = json.load(filehandle)
 
+from dataset_processing.grasp import Grasp
+
 for i, filename in enumerate(train_data):
-    test_data = load_and_preprocess_img(filename, side_after_crop=None, resize_height=512, resize_width=512)
-    test_data = np.array(test_data)
+    # Load Image and add batch axis
+    test_data = load_and_preprocess_img(dataset+filename, side_after_crop=None, resize_height=512, resize_width=512)
+    test_data = np.array(test_data, dtype=np.float32)
     test_data = test_data[np.newaxis, ...]
     
+    # Run prediction
     test_out = model.predict(test_data)
     print('## Grasp ', i, " ##: ", test_out)
+    test_out = test_out[0]
+    pred_grasp = Grasp((test_out[0], test_out[1]), test_out[2], test_out[3], test_out[4])
+
+    ## DO TESTING
+    # Layer Output
+    layer_name = 'regression_c'
+    intermediate_layer_model = keras.Model(inputs=model.input,
+                                        outputs=model.get_layer(layer_name).output)
+    intermediate_output = intermediate_layer_model(test_data)
+    maps_64 = np.squeeze(intermediate_output.numpy())
+    maps_64 = maps_64[:64*64,:]
+    maps_64 = np.reshape(maps_64, (64,64,5))
+
+    plt.subplot(2, 3, 1)
+    plt.imshow(maps_64[:,:,0])
+    plt.subplot(2, 3, 2)
+    plt.imshow(maps_64[:,:,1])
+    plt.subplot(2, 3, 3)
+    plt.imshow(maps_64[:,:,2])
+    plt.subplot(2, 3, 4)
+    plt.imshow(maps_64[:,:,3])
+    plt.subplot(2, 3, 5)
+    plt.imshow(maps_64[:,:,4])
+    plt.subplot(2, 3, 6)
+    plt.imshow(test_data[0,:,:,:])
+    plt.show()
+
+    # print(model.get_layer('regression_c').output)
+
+    # Plot maps
+
+    # Plot Grasp
+    fig = plt.figure()
+    ax = fig.add_axes([0,0,1,1])
+    ax.imshow(test_data[0,:,:,:])
+    pred_grasp.plot(ax)
+    plt.show()
     # print(test_out)
     # print(type(test_out[0]))
     # print(test_out.shape)

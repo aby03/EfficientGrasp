@@ -133,7 +133,7 @@ def main(args = None):
     # compile model    
     # Default Adam optimizer
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
-    model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.001),
+    model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.0001),
                   loss={'regression': mse})
 
     # # Accumulate adam optimizer
@@ -200,7 +200,8 @@ def main(args = None):
             max_queue_size = args.max_queue_size,
             validation_data = validation_generator
         )
-    model.save(os.path.join(args.snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}_finish'.format(phi = str(args.phi), metric = "val_grasp_loss", dataset_type = args.dataset_type)))
+    os.makedirs(args.snapshot_path, exist_ok = True)
+    model.save(os.path.join(args.snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}_finish.h5'.format(phi = str(args.phi), metric = "val_grasp_loss", dataset_type = args.dataset_type)))
     return
 
 def allow_gpu_growth_memory():
@@ -234,8 +235,9 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         snapshot_path = args.snapshot_path
         save_path = args.validation_image_save_path
         tensorboard_dir = args.tensorboard_dir
-        metric_to_monitor = "val_grasp_loss"
-        mode = "min"
+        # metric_to_monitor = "val_grasp_loss"
+        metric_to_monitor = "grasp_accuracy"
+        mode = "max"
     else:
         snapshot_path = args.snapshot_path
         save_path = args.validation_image_save_path
@@ -271,7 +273,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
                                                      verbose = 1,
                                                      #save_weights_only = True,
-                                                    #  save_best_only = True,
+                                                     save_best_only = True,
                                                      monitor = metric_to_monitor,
                                                      mode = mode)
         callbacks.append(checkpoint)

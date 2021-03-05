@@ -98,7 +98,7 @@ def grasp_loss(y_true, y_pred):
     w_err = y_true[4] - y_pred[4]
     loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (theta_err**2) + h_err ** 2 + w_err ** 2
     # loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (sin_err**2 + cos_err**2) + h_err ** 2 + w_err ** 2
-    return loss / 6.0
+    return loss
 
 def focal(alpha=0.25, gamma=1.5):
     """
