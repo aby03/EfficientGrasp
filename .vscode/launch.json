@@ -22,7 +22,7 @@
                       "--batch-size", "1",
                       "--lr", "1e-4",
                       "--epochs", "200",
-                    //   "--no-snapshots",
+                      "--no-snapshots",
                     //   "--no-evaluation",
                       "--gpu", "0",
                       "--weights", "imagenet",

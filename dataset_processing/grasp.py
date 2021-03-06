@@ -374,9 +374,10 @@ class Grasp:
 
     @property
     def as_list(self):
+        factor = 100.0
         return [*self.center, 
-                np.sin(self.angle),
-                np.cos(self.angle), 
+                np.sin(self.angle)*factor,
+                np.cos(self.angle)*factor, 
                 self.length, 
                 self.width]
 

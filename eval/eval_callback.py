@@ -127,8 +127,9 @@ def evaluate(
             print('Bbox true:', bbox_true)
         
         #Angle Diff
-        true_sin = true_grasps[j][index][2]
-        true_cos = true_grasps[j][index][3]
+        factor = 100.0
+        true_sin = true_grasps[j][index][2] / factor
+        true_cos = true_grasps[j][index][3] / factor
         
         if true_cos != 0:
             true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
@@ -137,6 +138,8 @@ def evaluate(
         pred_sin = pred_grasps[j][2]
         pred_cos = pred_grasps[j][3]
 
+        pred_sin = pred_sin / factor
+        pred_cos = pred_cos / factor
         norm_fact = (pred_sin**2 + pred_cos**2) ** 0.5
         pred_sin = pred_sin / norm_fact
         pred_cos = pred_cos / norm_fact
