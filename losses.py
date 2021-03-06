@@ -1,60 +1,46 @@
-"""
-EfficientPose (c) by Steinbeis GmbH & Co. KG für Technologietransfer
-Haus der Wirtschaft, Willi-Bleicher-Straße 19, 70174 Stuttgart, Germany
-Yannick Bukschat: yannick.bukschat@stw.de
-Marcus Vetter: marcus.vetter@stw.de
-
-EfficientPose is licensed under a
-Creative Commons Attribution-NonCommercial 4.0 International License.
-
-The license can be found in the LICENSE file in the root directory of this source tree
-or at http://creativecommons.org/licenses/by-nc/4.0/.
----------------------------------------------------------------------------------------------------------------------------------
----------------------------------------------------------------------------------------------------------------------------------
-
-Based on:
-
-Keras EfficientDet implementation (https://github.com/xuannianz/EfficientDet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-The official EfficientDet implementation (https://github.com/google/automl) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-EfficientNet Keras implementation (https://github.com/qubvel/efficientnet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-Keras RetinaNet implementation (https://github.com/fizyr/keras-retinanet) licensed under
-    
-Copyright 2017-2018 Fizyr (https://fizyr.com)
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
 from tensorflow import keras
 import tensorflow as tf
 import math
 
 import numpy as np
-def grasp_loss_bt(theta_err_wt = 1):
+def grasp_loss_bt(batch_sz = 1):
+    @tf.function
     def _grasp_loss_bt(y_true, y_pred):
-        x_err = y_true[:, 0] - y_pred[:,0]
-        y_err = y_true[:, 1] - y_pred[:,1]
-        # theta_err = ((tf.math.atan(y_true[:, 2]) - tf.math.atan(y_pred[:,2])) * 180 / math.pi) % 180
-        # theta_err = tf.minimum(theta_err, 180 - theta_err)
-        sin_err = y_true[:,2] - y_pred[:,2]
-        cos_err = y_true[:,3] - y_pred[:,3]
-        h_err = y_true[:, 4] - y_pred[:,4]
-        w_err = y_true[:, 5] - y_pred[:,5]
-        loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (sin_err**2 + cos_err**2) + h_err ** 2 + w_err ** 2
+        '''
+        y_true: (batch, no of labels, 6)
+        y_pred: (batch, 6)
+        '''
+        # print(tf.shape(y_true))
+        # y_true_unpacked = tf.unstack(y_true)
+        # y_true.set_shape([batch_sz, 30, 6])
+        loss_l = []
+        for i in range(batch_sz):
+            # y_true_g_unpacked = tf.unstack(y_true_unpacked[i])
+            loss = float('inf')
+            for j in range(30):
+                # if tf.equal(y_true[i][j][0],  tf.constant(0)):
+                #     break
+                # tf.print(y_pred)
+                # tf.print('*******')
+                # tf.print(y_true[i,j])
+                loss = keras.backend.minimum( keras.backend.mean( keras.backend.square(y_true[i][j] - y_pred[i]) ), loss )
+                # tf.print(loss)
+                # tf.print('=============')
+                # loss = keras.backend.minimum( keras.backend.sum((y_true[i][j] - y_pred[i])**2), loss )
+                # loss = min( np.sum( (y_true[i,j,:] - y_pred[i,:])**2 ), loss)
+            loss_l.append(loss)
+        return loss_l
+        # x_err = y_true[:, 0] - y_pred[:,0]
+        # y_err = y_true[:, 1] - y_pred[:,1]
+        # # theta_err = ((tf.math.atan(y_true[:, 2]) - tf.math.atan(y_pred[:,2])) * 180 / math.pi) % 180
+        # # theta_err = tf.minimum(theta_err, 180 - theta_err)
+        # sin_err = y_true[:,2] - y_pred[:,2]
+        # cos_err = y_true[:,3] - y_pred[:,3]
+        # h_err = y_true[:, 4] - y_pred[:,4]
+        # w_err = y_true[:, 5] - y_pred[:,5]
+        # loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (sin_err**2 + cos_err**2) + h_err ** 2 + w_err ** 2
         # loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (theta_err**2) + h_err ** 2 + w_err ** 2
-        return loss
+        # return loss
     return _grasp_loss_bt    
 
 # min loss among all grasps
@@ -73,7 +59,7 @@ def grasp_loss_min(theta_err_wt = 1):
             for j in range(y_true.shape[1]):
                 y_true_grasp = y_true[i,j,:]
                 # Calculate loss
-                curr_loss = np.sum(np.square(y_true_grasp - y_pred_img))  # Divide by 6 may be there. Check later
+                curr_loss = np.mean(np.square(y_true_grasp - y_pred_img))  # Divide by 6 may be there. Check later
                 if curr_loss < min_loss:
                     min_loss = curr_loss
             tot_loss += min_loss

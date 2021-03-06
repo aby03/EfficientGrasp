@@ -9,7 +9,7 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import Adam, Adam_accumulate
 
 from model import build_EfficientGrasp
-# from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
+from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 
 from custom_load_weights import custom_load_weights
@@ -119,7 +119,8 @@ def main(args = None):
     # Default Adam optimizer
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
     model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001),
-                  loss={'regression': mse})
+                  loss={'regression': grasp_loss_bt(args.batch_size)})
+                #   loss={'regression': mse})
 
     # # Accumulate adam optimizer
     # custom_adam = Adam_accumulate(lr=args.lr, accum_iters=16)

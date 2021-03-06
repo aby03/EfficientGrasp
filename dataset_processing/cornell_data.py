@@ -3,6 +3,7 @@ import os
 
 #from utils.dataset_processing 
 from dataset_processing import grasp, image
+# import grasp, image
 # from .grasp_data import GraspDatasetBase
 import numpy as np
 import random
@@ -78,12 +79,13 @@ class CornellDataset(Sequence):
         top = max(0, min(center[0] - self.output_size // 2, 480 - self.output_size))
         return center, left, top
 
-    def get_gtbb(self, idx, rot=0, zoom=1.0):
+    def get_gtbb(self, idx, rot=0, zoom=1.0, scale=(1.0,1.0)):
         gtbbs = grasp.GraspRectangles.load_from_cornell_file(self.dataset+self.grasp_files[idx])
         center, left, top = self._get_crop_attrs(idx)
         gtbbs.rotate(rot, center)
         gtbbs.offset((-top, -left))
         gtbbs.zoom(zoom, (self.output_size // 2, self.output_size // 2))
+        gtbbs.corner_scale(scale)
         return gtbbs
 
     def get_rgd(self, idx, rot=0, zoom=1.0, normalise=True):
@@ -92,11 +94,14 @@ class CornellDataset(Sequence):
         rgd_img.rotate(rot, center)
         rgd_img.crop((top, left), (min(480, top + self.output_size), min(640, left + self.output_size)))
         rgd_img.zoom(zoom)
+        init_shape = (min(480 - top, self.output_size), min(640 - left, self.output_size))
+        final_shape = (self.output_size, self.output_size)
+        scale = (self.output_size/min(480 - top, self.output_size),self.output_size/min(640 - left, self.output_size))
         rgd_img.resize((self.output_size, self.output_size))
         if normalise:
             rgd_img.normalise()
             # rgd_img.img = rgd_img.img.transpose((2, 0, 1))
-        return rgd_img.img
+        return rgd_img.img, scale
 
     def __getitem__(self, index):
         'Generate one batch of data'
@@ -131,19 +136,40 @@ class CornellDataset(Sequence):
                     zoom_factor = 1.0
                 
                 # Load image with zoom and rotation
-                rgd_img = self.get_rgd(indexes[i], rot, zoom_factor)
+                rgd_img, scale = self.get_rgd(indexes[i], rot, zoom_factor)
 
                 # Load bboxes
-                gtbb = self.get_gtbb(indexes[i], rot, zoom_factor)
-                # Pick random grasp
-                g_id = np.random.randint(len(gtbb.grs))
-                # HARDCODE TO PICK ONLY 1st GRASP
-                g_id = 0
-                # Get Grasp as list [x y angle(in rad) h w]
-                grasp = (gtbb[g_id].as_grasp).as_list 
+                gtbb = self.get_gtbb(indexes[i], rot, zoom_factor, scale)
+                # Pick all grasps
+                y_grasp_image = []
+                # Pad count
+                count = 30
+                for g_id in range(len(gtbb.grs)):
+                    # Get Grasp as list [x y angle(in rad) h w]
+                    grasp = (gtbb[g_id].as_grasp).as_list 
+                    # Store each grasp for an image
+                    y_grasp_image.append(grasp)
+                    count -= 1
+                    if count == 0:
+                        break
+                while (count > 0):
+                    pad_0 = [1e8, 1e8, 1e8, 1e8, 1e8, 1e8]
+                    # pad_0 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                    y_grasp_image.append(pad_0)
+                    count -= 1
+                # Store all grasps for an image
+                y_grasp.append(y_grasp_image)
 
-                # Store grasp
-                y_grasp.append(grasp)
+                
+                # # Pick random grasp
+                # g_id = np.random.randint(len(gtbb.grs))
+                # # HARDCODE TO PICK ONLY 1st GRASP
+                # g_id = 0
+                # # Get Grasp as list [x y angle(in rad) h w]
+                # grasp = (gtbb[g_id].as_grasp).as_list 
+
+                # # Store grasp
+                # y_grasp.append(grasp)
 
                 # print(gtbb.grs[0])
                 # print(self.rgd_files[indexes[i]])
@@ -160,10 +186,10 @@ class CornellDataset(Sequence):
             else:
                 # If validation data
                 # Load image with 1 zoom and 0 rotation
-                rgd_img = self.get_rgd(indexes[i], 0, 1)
+                rgd_img, scale = self.get_rgd(indexes[i], 0, 1)
 
                 # Load bboxes
-                gtbb = self.get_gtbb(indexes[i], 0, 1)
+                gtbb = self.get_gtbb(indexes[i], 0, 1, scale)
                 # Pick all grasps
                 y_grasp_image = []
                 for g_id in range(len(gtbb.grs)):
@@ -189,17 +215,17 @@ class CornellDataset(Sequence):
             X[i,] = rgd_img
         return X, np.asarray(y_grasp)
 
-# ### TESTING
-# dataset = "/home/aby/Workspace/MTP/Datasets/Cornell/archive"
-# with open(dataset+'/train.txt', 'r') as filehandle:
-#     train_data = json.load(filehandle)
+### TESTING
+dataset = "/home/aby/Workspace/MTP/Datasets/Cornell/archive"
+with open(dataset+'/train.txt', 'r') as filehandle:
+    train_data = json.load(filehandle)
 
-# train_generator = CornellDataset(
-#     dataset,
-#     train_data,
-#     train=False,
-#     shuffle=False,
-#     batch_size=2
-# )
+train_generator = CornellDataset(
+    dataset,
+    train_data,
+    train=True,
+    shuffle=False,
+    batch_size=2
+)
 
-# train_generator[0]
+train_generator[0]

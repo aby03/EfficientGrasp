@@ -323,6 +323,15 @@ class GraspRectangle:
             return
         self.points *= factor
 
+    def corner_scale(self, factor):
+        """
+        :param factor: Scale grasp rectangle by factor
+        """
+        if factor == (1.0, 1.0):
+            return
+        self.points[:,0] = np.round_(self.points[:,0] * factor[0]).astype(int)
+        self.points[:,1] = np.round_(self.points[:,1] * factor[1]).astype(int)
+
     def plot(self, ax, q, color=None):
         """
         Plot grasping rectangle.

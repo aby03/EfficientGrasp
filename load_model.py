@@ -1,4 +1,5 @@
 import tensorflow as tf
+from dataset_processing import grasp
 
 def allow_gpu_growth_memory():
     """
@@ -29,7 +30,7 @@ model, prediction_model, all_layers = build_EfficientGrasp(0,
                                                         print_architecture=False)
 
 # load pretrained weights
-model.load_weights('checkpoints/06_03_2021_21_02_25/cornell_finish.h5', by_name=True)
+model.load_weights('checkpoints/07_03_2021_01_46_01/cornell_finish.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE
@@ -48,6 +49,9 @@ for i, filename in enumerate(train_data):
     test_data = np.array(test_data, dtype=np.float32)
     test_data = test_data[np.newaxis, ...]
     
+    # Load label
+    gtbbs = grasp.GraspRectangles.load_from_cornell_file(dataset+filename.replace("z.png", "cpos.txt"))
+    gtbbs.corner_scale((512/480,512/640))
     # Run prediction
     test_out = model.predict(test_data)
     print('## Grasp ', i, " ##: ", test_out)
@@ -87,12 +91,13 @@ for i, filename in enumerate(train_data):
     fig = plt.figure()
     ax = fig.add_axes([0,0,1,1])
     ax.imshow(test_data[0,:,:,:])
-    pred_grasp.plot(ax)
+    pred_grasp.plot(ax, 'red')
+    gtbbs.plot(ax, 0.8)
     plt.show()
     # print(test_out)
     # print(type(test_out[0]))
     # print(test_out.shape)
-    exit()
+    # exit()
 
 # import math
 # y_grasp_all = []
