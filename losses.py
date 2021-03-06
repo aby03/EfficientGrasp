@@ -89,15 +89,15 @@ def grasp_loss(y_true, y_pred):
     # theta_err = ((np.arctan(y_true[2]) - np.arctan(y_pred[2])) * 180 / math.pi) % 180
     # theta_err = np.minimum(theta_err, 180 - theta_err)
 
-    theta_err = (y_true[2] - y_pred[2])
+    # theta_err = (y_true[2] - y_pred[2])
     # theta_err = np.minimum(theta_err, 180 - theta_err)
-    # sin_err = y_true[2] - y_pred[2]
-    # cos_err = y_true[3] - y_pred[3]
+    sin_err = y_true[2] - y_pred[2]
+    cos_err = y_true[3] - y_pred[3]
 
-    h_err = y_true[3] - y_pred[3]
-    w_err = y_true[4] - y_pred[4]
-    loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (theta_err**2) + h_err ** 2 + w_err ** 2
-    # loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (sin_err**2 + cos_err**2) + h_err ** 2 + w_err ** 2
+    h_err = y_true[4] - y_pred[4]
+    w_err = y_true[5] - y_pred[5]
+    # loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (theta_err**2) + h_err ** 2 + w_err ** 2
+    loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (sin_err**2 + cos_err**2) + h_err ** 2 + w_err ** 2
     return loss
 
 def focal(alpha=0.25, gamma=1.5):

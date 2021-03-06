@@ -17,21 +17,15 @@ class CornellDataset(Sequence):
     """
 
     def __init__(self, dataset_path, list_IDs, phi=0, batch_size=1, output_size=512, n_channels=3,
-                 n_classes=10, shuffle=True, train=True, ds_rotate=0, **kwargs):
+                 n_classes=10, shuffle=True, train=True, ds_rotate=0):
         """
         :param output_size: Image output size in pixels (square)
-        :param include_depth: Whether depth image is included
-        :param include_rgb: Whether RGB image is included
         :param random_rotate: Whether random rotations are applied
         :param random_zoom: Whether random zooms are applied
         :param input_only: Whether to return only the network input (no labels)
-        """
-        """
         :param dataset_path: Cornell Dataset directory.
         :param ds_rotate: If splitting the dataset, rotate the list of items by this fraction first
-        :param kwargs: kwargs for GraspDatasetBase
         """
-        # super(CornellDataset, self).__init__(**kwargs)
         self.random_rotate = train
         self.random_zoom = train
 
@@ -143,6 +137,8 @@ class CornellDataset(Sequence):
                 gtbb = self.get_gtbb(indexes[i], rot, zoom_factor)
                 # Pick random grasp
                 g_id = np.random.randint(len(gtbb.grs))
+                # HARDCODE TO PICK ONLY 1st GRASP
+                g_id = 0
                 # Get Grasp as list [x y angle(in rad) h w]
                 grasp = (gtbb[g_id].as_grasp).as_list 
 

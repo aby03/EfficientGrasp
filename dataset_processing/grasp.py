@@ -366,7 +366,8 @@ class Grasp:
     @property
     def as_list(self):
         return [*self.center, 
-                self.angle, 
+                np.sin(self.angle),
+                np.cos(self.angle), 
                 self.length, 
                 self.width]
 

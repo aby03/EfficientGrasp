@@ -1,42 +1,3 @@
-"""
-EfficientPose (c) by Steinbeis GmbH & Co. KG für Technologietransfer
-Haus der Wirtschaft, Willi-Bleicher-Straße 19, 70174 Stuttgart, Germany
-Yannick Bukschat: yannick.bukschat@stw.de
-Marcus Vetter: marcus.vetter@stw.de
-
-EfficientPose is licensed under a
-Creative Commons Attribution-NonCommercial 4.0 International License.
-
-The license can be found in the LICENSE file in the root directory of this source tree
-or at http://creativecommons.org/licenses/by-nc/4.0/.
----------------------------------------------------------------------------------------------------------------------------------
----------------------------------------------------------------------------------------------------------------------------------
-
-Based on:
-
-Keras EfficientDet implementation (https://github.com/xuannianz/EfficientDet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-The official EfficientDet implementation (https://github.com/google/automl) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-EfficientNet Keras implementation (https://github.com/qubvel/efficientnet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-Keras RetinaNet implementation (https://github.com/fizyr/keras-retinanet) licensed under
-    
-Copyright 2017-2018 Fizyr (https://fizyr.com)
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
 import tensorflow as tf
 from tensorflow import keras
 import progressbar
@@ -166,20 +127,26 @@ def evaluate(
             print('Bbox true:', bbox_true)
         
         #Angle Diff
-        # true_sin = true_grasps[j][index][2]
-        # true_cos = true_grasps[j][index][3]
-        # if true_cos != 0:
-        #     true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
-        # else:
-        #     true_angle = 90
-        # pred_sin = pred_grasps[j][2]
-        # pred_cos = pred_grasps[j][3]
-        # if pred_cos != 0:
-        #     pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
-        # else:
-        #     pred_angle = 90
-        true_angle = true_grasps[j][index][2] * 180.0/np.pi
-        pred_angle = pred_grasps[j][2] * 180.0/np.pi
+        true_sin = true_grasps[j][index][2]
+        true_cos = true_grasps[j][index][3]
+        
+        if true_cos != 0:
+            true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
+        else:
+            true_angle = 90
+        pred_sin = pred_grasps[j][2]
+        pred_cos = pred_grasps[j][3]
+
+        norm_fact = (pred_sin**2 + pred_cos**2) ** 0.5
+        pred_sin = pred_sin / norm_fact
+        pred_cos = pred_cos / norm_fact
+
+        if pred_cos != 0:
+            pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
+        else:
+            pred_angle = 90
+        # true_angle = true_grasps[j][index][2] * 180.0/np.pi
+        # pred_angle = pred_grasps[j][2] * 180.0/np.pi
         
         angle_diff = np.abs(pred_angle - true_angle)
         angle_diff = min(angle_diff, 180.0 - angle_diff)

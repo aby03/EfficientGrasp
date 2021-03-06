@@ -1,42 +1,3 @@
-"""
-EfficientPose (c) by Steinbeis GmbH & Co. KG für Technologietransfer
-Haus der Wirtschaft, Willi-Bleicher-Straße 19, 70174 Stuttgart, Germany
-Yannick Bukschat: yannick.bukschat@stw.de
-Marcus Vetter: marcus.vetter@stw.de
-
-EfficientPose is licensed under a
-Creative Commons Attribution-NonCommercial 4.0 International License.
-
-The license can be found in the LICENSE file in the root directory of this source tree
-or at http://creativecommons.org/licenses/by-nc/4.0/.
----------------------------------------------------------------------------------------------------------------------------------
----------------------------------------------------------------------------------------------------------------------------------
-
-Based on:
-
-Keras EfficientDet implementation (https://github.com/xuannianz/EfficientDet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-The official EfficientDet implementation (https://github.com/google/automl) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-EfficientNet Keras implementation (https://github.com/qubvel/efficientnet) licensed under the Apache License, Version 2.0
----------------------------------------------------------------------------------------------------------------------------------
-Keras RetinaNet implementation (https://github.com/fizyr/keras-retinanet) licensed under
-    
-Copyright 2017-2018 Fizyr (https://fizyr.com)
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
 from functools import reduce
 
 import tensorflow as tf
@@ -58,17 +19,14 @@ EPSILON = 1e-4
 
 
 def build_EfficientGrasp(phi,
-                        num_classes = 10,
                         num_anchors = 1,
                         freeze_bn = False,
-                        score_threshold = 0.5,
                         anchor_parameters = None,
                         print_architecture = False):
     """
     Builds an EfficientPose model
     Args:
         phi: EfficientPose scaling hyperparameter phi
-        num_classes: Number of classes,
         num_anchors: The number of anchors, usually 3 scales and 3 aspect ratios resulting in 3 * 3 = 9 anchors
         freeze_bn: Boolean indicating if the batch norm layers should be freezed during training or not.
         score_threshold: Minimum score threshold at which a prediction is not filtered out
@@ -100,37 +58,42 @@ def build_EfficientGrasp(phi,
     
     #build EfficientNet backbone
     backbone_feature_maps = backbone_class(input_tensor = image_input, freeze_bn = freeze_bn)
-    
+    # print('FEATURES: ', backbone_feature_maps[0].shape)
+    # print('FEATURES: ', backbone_feature_maps[1].shape)
+    # print('FEATURES: ', backbone_feature_maps[2].shape)
+    # print('FEATURES: ', backbone_feature_maps[3].shape)
+    # print('FEATURES: ', backbone_feature_maps[4].shape)
     # # Debug
     # backbone_model = models.Model(inputs = [image_input], outputs = [backbone_feature_maps], name = 'effnetb0')
 
     #build BiFPN
-    fpn_feature_maps = build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, freeze_bn)
+    fpn_feature_maps = build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, num_groups_gn, freeze_bn)
 
     # Debug
     bifpn_model = models.Model(inputs = [image_input], outputs = [fpn_feature_maps], name = 'bifpn')
-
-    #build subnets
-    # grasp_net = build_subnets(num_classes,
-    #                         subnet_width,
-    #                         subnet_depth,
-    #                         subnet_num_iteration_steps,
-    #                         num_groups_gn,
-    #                         freeze_bn,
-    #                         num_anchors)
     
+    # Build GraspNet
     grasp_net = GraspNet(subnet_width,
                         subnet_depth,
                         freeze_bn=freeze_bn, 
                         name='grasp_net')
 
-    #apply subnets to feature maps
-    grasp_regression = apply_subnets_to_feature_maps(grasp_net,
-                                                            fpn_feature_maps,
-                                                            image_input,
-                                                            input_size,
-                                                            anchor_parameters)
-    
+    # Apply GraspNet
+    grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
+    grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
+    # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
+    # grasp_regression = layers.Dense(1024,
+    #                                 # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+    #                                 # bias_regularizer=regularizers.l2(1e-4),
+    #                                 # activity_regularizer=regularizers.l2(1e-5),
+    #                                 name='regression_d1')(grasp_regression)
+    grasp_regression = layers.Dense(6,
+                                    # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+                                    # bias_regularizer=regularizers.l2(1e-4),
+                                    # activity_regularizer=regularizers.l2(1e-5),
+                                    name='regression_d2')(grasp_regression)
+    grasp_regression = layers.Flatten(name='regression')(grasp_regression)
     
     #get the EfficientPose model for training without NMS and the rotation and translation output combined in the transformation output because of the loss calculation
     efficientgrasp_train = models.Model(inputs = [image_input], outputs = [grasp_regression], name = 'efficientgrasp')
@@ -169,11 +132,11 @@ def get_scaled_parameters(phi):
     #info tuples with scalable parameters
     image_sizes = (512, 640, 768, 896, 1024, 1280, 1408)
     # bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
-    bifpn_widths = (224, 88, 112, 160, 224, 288, 384)
+    bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
     # bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     # subnet_depths = (3, 3, 3, 4, 4, 4, 5)
-    subnet_depths = (6, 3, 3, 4, 4, 4, 5)
+    subnet_depths = (3, 3, 3, 4, 4, 4, 5)
     subnet_iteration_steps = (1, 1, 1, 2, 2, 2, 3)
     num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
     backbones = (EfficientNetB0,
@@ -195,7 +158,7 @@ def get_scaled_parameters(phi):
     return parameters
 
 
-def build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, freeze_bn):
+def build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, num_groups_gn, freeze_bn):
     """
     Building the bidirectional feature pyramid as described in https://arxiv.org/abs/1911.09070
     Args:
@@ -209,12 +172,12 @@ def build_BiFPN(backbone_feature_maps, bifpn_depth, bifpn_width, freeze_bn):
     """
     fpn_feature_maps = backbone_feature_maps
     for i in range(bifpn_depth):
-        fpn_feature_maps = build_BiFPN_layer(fpn_feature_maps, bifpn_width, i, freeze_bn = freeze_bn)
+        fpn_feature_maps = build_BiFPN_layer(fpn_feature_maps, bifpn_width, num_groups_gn, i, freeze_bn = freeze_bn)
         
     return fpn_feature_maps
 
 
-def build_BiFPN_layer(features, num_channels, idx_BiFPN_layer, freeze_bn = False):
+def build_BiFPN_layer(features, num_channels, num_groups_gn, idx_BiFPN_layer, freeze_bn = False):
     """
     Builds a single layer of the bidirectional feature pyramid
     Args:
@@ -228,7 +191,7 @@ def build_BiFPN_layer(features, num_channels, idx_BiFPN_layer, freeze_bn = False
     """
     if idx_BiFPN_layer == 0:
         _, _, C3, C4, C5 = features
-        P3_in, P4_in_1, P4_in_2, P5_in_1, P5_in_2, P6_in, P7_in = prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, freeze_bn)
+        P3_in, P4_in_1, P4_in_2, P5_in_1, P5_in_2, P6_in, P7_in = prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, num_groups_gn, freeze_bn)
     else:
         P3_in, P4_in, P5_in, P6_in, P7_in = features
         
@@ -254,7 +217,7 @@ def build_BiFPN_layer(features, num_channels, idx_BiFPN_layer, freeze_bn = False
     return P3_out, P4_td, P5_td, P6_td, P7_out #TODO check if it is a bug to return the top down feature maps instead of the output maps
 
 
-def prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, freeze_bn):
+def prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, num_groups_gn, freeze_bn):
     """
     Prepares the backbone feature maps for the first BiFPN layer
     Args:
@@ -267,22 +230,22 @@ def prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, freeze_bn):
     """
     P3_in = C3
     P3_in = layers.Conv2D(num_channels, kernel_size = 1, padding = 'same', name = 'fpn_cells/cell_0/fnode3/resample_0_0_8/conv2d')(P3_in)
-    # P3_in = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode3/resample_0_0_8/bn')(P3_in)
+    P3_in = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode3/resample_0_0_8/bn')(P3_in)
     
     P4_in = C4
     P4_in_1 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode2/resample_0_1_7/conv2d')(P4_in)
-    # P4_in_1 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode2/resample_0_1_7/bn')(P4_in_1)
+    P4_in_1 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode2/resample_0_1_7/bn')(P4_in_1)
     P4_in_2 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode4/resample_0_1_9/conv2d')(P4_in)
-    # P4_in_2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode4/resample_0_1_9/bn')(P4_in_2)
+    P4_in_2 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode4/resample_0_1_9/bn')(P4_in_2)
     
     P5_in = C5
     P5_in_1 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode1/resample_0_2_6/conv2d')(P5_in)
-    # P5_in_1 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode1/resample_0_2_6/bn')(P5_in_1)
+    P5_in_1 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode1/resample_0_2_6/bn')(P5_in_1)
     P5_in_2 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode5/resample_0_2_10/conv2d')(P5_in)
-    # P5_in_2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode5/resample_0_2_10/bn')(P5_in_2)
+    P5_in_2 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode5/resample_0_2_10/bn')(P5_in_2)
     
     P6_in = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='resample_p6/conv2d')(C5)
-    # P6_in = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name='resample_p6/bn')(P6_in)
+    P6_in = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='resample_p6/bn')(P6_in)
     P6_in = layers.MaxPooling2D(pool_size=3, strides=2, padding='same', name='resample_p6/maxpool')(P6_in)
     
     P7_in = layers.MaxPooling2D(pool_size=3, strides=2, padding='same', name='resample_p7/maxpool')(P6_in)
@@ -388,144 +351,9 @@ def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn = Fal
     """
     f1 = layers.SeparableConv2D(num_channels, kernel_size = kernel_size, strides = strides, padding = 'same', use_bias = True, name = f'{name}/conv')
     f2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{name}/bn')
-    return reduce(lambda f, g: lambda *args, **kwargs: f(*args, **kwargs), (f1, f2))
-    # return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
+    # return reduce(lambda f, g: lambda *args, **kwargs: f(*args, **kwargs), (f1, f2))
+    return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
 
-
-def build_subnets(num_classes, subnet_width, subnet_depth, subnet_num_iteration_steps, num_groups_gn, freeze_bn, num_anchors):
-    """
-    Builds the EfficientPose subnetworks
-    Args:
-        num_classes: Number of classes for the classification network output
-        subnet_width: The number of channels used in the subnetwork layers
-        subnet_depth: The number of layers used in the subnetworks
-        subnet_num_iteration_steps: The number of iterative refinement steps used in the rotation and translation subnets
-        num_groups_gn: The number of groups per group norm layer used in the rotation and translation subnets
-        num_rotation_parameters: Number of rotation parameters, e.g. 3 for axis angle representation
-        freeze_bn: Boolean indicating if the batch norm layers should be freezed during training or not.
-        num_anchors: The number of anchors, usually 3 scales and 3 aspect ratios resulting in 3 * 3 = 9 anchors
-    
-    Returns:
-       The subnetworks
-    """
-    # box_net = BoxNet(subnet_width,
-    #                   subnet_depth,
-    #                   num_anchors = num_anchors,
-    #                   freeze_bn = freeze_bn,
-    #                   name = 'box_net')
-    
-    # class_net = ClassNet(subnet_width,
-    #                       subnet_depth,
-    #                       num_classes = num_classes,
-    #                       num_anchors = num_anchors,
-    #                       freeze_bn = freeze_bn,
-    #                       name = 'class_net')
-
-    grasp_net = GraspNet(subnet_width,
-                         subnet_depth,
-                         freeze_bn=freeze_bn, 
-                         name='grasp_net')
-
-
-    # rotation_net = RotationNet(subnet_width,
-    #                             subnet_depth,
-    #                             num_values = num_rotation_parameters,
-    #                             num_iteration_steps = subnet_num_iteration_steps,
-    #                             num_anchors = num_anchors,
-    #                             freeze_bn = freeze_bn,
-    #                             use_group_norm = True,
-    #                             num_groups_gn = num_groups_gn,
-    #                             name = 'rotation_net')
-    
-    # translation_net = TranslationNet(subnet_width,
-    #                             subnet_depth,
-    #                             num_iteration_steps = subnet_num_iteration_steps,
-    #                             num_anchors = num_anchors,
-    #                             freeze_bn = freeze_bn,
-    #                             use_group_norm = True,
-    #                             num_groups_gn = num_groups_gn,
-    #                             name = 'translation_net')
-
-    return grasp_net
-
-
-# class BoxNet(models.Model):
-#     def __init__(self, width, depth, num_anchors = 9, freeze_bn = False, **kwargs):
-#         super(BoxNet, self).__init__(**kwargs)
-#         self.width = width
-#         self.depth = depth
-#         self.num_anchors = num_anchors
-#         self.num_values = 4
-#         options = {
-#             'kernel_size': 3,
-#             'strides': 1,
-#             'padding': 'same',
-#             'bias_initializer': 'zeros',
-#         }
-
-#         kernel_initializer = {
-#             'depthwise_initializer': initializers.VarianceScaling(),
-#             'pointwise_initializer': initializers.VarianceScaling(),
-#         }
-#         options.update(kernel_initializer)
-#         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/box-{i}', **options) for i in range(self.depth)]
-#         self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/box-predict', **options)
-        
-#         self.bns = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
-#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
-#         self.reshape = layers.Reshape((-1, self.num_values))
-#         self.level = 0
-
-#     def call(self, inputs, **kwargs):
-#         feature, level = inputs
-#         for i in range(self.depth):
-#             feature = self.convs[i](feature)
-#             feature = self.bns[i][self.level](feature)
-#             feature = self.activation(feature)
-#         outputs = self.head(feature)
-#         outputs = self.reshape(outputs)
-#         self.level += 1
-#         return outputs
-
-
-# class ClassNet(models.Model):
-#     def __init__(self, width, depth, num_classes = 8, num_anchors = 9, freeze_bn = False, **kwargs):
-#         super(ClassNet, self).__init__(**kwargs)
-#         self.width = width
-#         self.depth = depth
-#         self.num_classes = num_classes
-#         self.num_anchors = num_anchors
-#         options = {
-#             'kernel_size': 3,
-#             'strides': 1,
-#             'padding': 'same',
-#         }
-
-#         kernel_initializer = {
-#             'depthwise_initializer': initializers.VarianceScaling(),
-#             'pointwise_initializer': initializers.VarianceScaling(),
-#         }
-#         options.update(kernel_initializer)
-#         self.convs = [layers.SeparableConv2D(filters = self.width, bias_initializer = 'zeros', name = f'{self.name}/class-{i}', **options) for i in range(self.depth)]
-#         self.head = layers.SeparableConv2D(filters = self.num_classes * self.num_anchors, bias_initializer = PriorProbability(probability = 0.01), name = f'{self.name}/class-predict', **options)
-
-#         self.bns = [[BatchNormalization(freeze = freeze_bn, momentum = MOMENTUM, epsilon = EPSILON, name = f'{self.name}/class-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
-#         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
-#         self.reshape = layers.Reshape((-1, self.num_classes))
-#         self.activation_sigmoid = layers.Activation('sigmoid')
-#         self.level = 0
-
-#     def call(self, inputs, **kwargs):
-#         feature, level = inputs
-#         for i in range(self.depth):
-#             feature = self.convs[i](feature)
-#             feature = self.bns[i][self.level](feature)
-#             feature = self.activation(feature)
-#         outputs = self.head(feature)
-#         outputs = self.reshape(outputs)
-#         outputs = self.activation_sigmoid(outputs)
-#         self.level += 1
-#         return outputs
 
 class GraspNet(models.Model):
     def __init__(self, width, depth, num_anchors = 1, freeze_bn = False, **kwargs):
@@ -533,8 +361,8 @@ class GraspNet(models.Model):
         self.width = width
         self.depth = depth
         self.num_anchors = num_anchors
-        # self.num_values = 6 # x, y, sin_t, cos_t, h, w
-        self.num_values = 5 # x, y, tan_t, h, w
+        self.num_values = 6 # x, y, sin_t, cos_t, h, w
+        # self.num_values = 5 # x, y, tan_t, h, w
         options = {
             'kernel_size': 3,
             'strides': 1,
@@ -550,7 +378,7 @@ class GraspNet(models.Model):
         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/box-{i}', **options) for i in range(self.depth)]
         self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/box-predict', **options)
         
-        # self.bns = [[GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+        self.bns = [[GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
         self.reshape = layers.Reshape((-1, self.num_values))
         self.level = 0
@@ -847,14 +675,14 @@ def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, inpu
     grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
     grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
 
-    grasp_regression = layers.Reshape((-1,5456*5))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
+    grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
-    grasp_regression = layers.Dense(1024,
-                                    # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
-                                    # bias_regularizer=regularizers.l2(1e-4),
-                                    # activity_regularizer=regularizers.l2(1e-5),
-                                    name='regression_d1')(grasp_regression)
-    grasp_regression = layers.Dense(5,
+    # grasp_regression = layers.Dense(1024,
+    #                                 # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+    #                                 # bias_regularizer=regularizers.l2(1e-4),
+    #                                 # activity_regularizer=regularizers.l2(1e-5),
+    #                                 name='regression_d1')(grasp_regression)
+    grasp_regression = layers.Dense(6,
                                     # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
                                     # bias_regularizer=regularizers.l2(1e-4),
                                     # activity_regularizer=regularizers.l2(1e-5),

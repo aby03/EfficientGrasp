@@ -24,14 +24,12 @@ from tensorflow import keras
 
 # Build Model
 model, prediction_model, all_layers = build_EfficientGrasp(0,
-                                                        num_classes = 10,
                                                         num_anchors = 1,
                                                         freeze_bn = not False,
-                                                        score_threshold = 0.5,
                                                         print_architecture=False)
 
 # load pretrained weights
-model.load_weights('checkpoints/05_03_2021_03_19_47/phi_0_cornell_best_val_grasp_loss_finish.h5', by_name=True)
+model.load_weights('checkpoints/06_03_2021_21_02_25/cornell_finish.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE
@@ -54,7 +52,8 @@ for i, filename in enumerate(train_data):
     test_out = model.predict(test_data)
     print('## Grasp ', i, " ##: ", test_out)
     test_out = test_out[0]
-    pred_grasp = Grasp((test_out[0], test_out[1]), test_out[2], test_out[3], test_out[4])
+    angle = np.arctan(test_out[2]/test_out[3])
+    pred_grasp = Grasp((test_out[0], test_out[1]), angle, test_out[4], test_out[5])
 
     ## DO TESTING
     # Layer Output
@@ -64,7 +63,7 @@ for i, filename in enumerate(train_data):
     intermediate_output = intermediate_layer_model(test_data)
     maps_64 = np.squeeze(intermediate_output.numpy())
     maps_64 = maps_64[:64*64,:]
-    maps_64 = np.reshape(maps_64, (64,64,5))
+    maps_64 = np.reshape(maps_64, (64,64,6))
 
     plt.subplot(2, 3, 1)
     plt.imshow(maps_64[:,:,0])
@@ -93,6 +92,7 @@ for i, filename in enumerate(train_data):
     # print(test_out)
     # print(type(test_out[0]))
     # print(test_out.shape)
+    exit()
 
 # import math
 # y_grasp_all = []

@@ -9,14 +9,13 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import Adam, Adam_accumulate
 
 from model import build_EfficientGrasp
-# from model_grasp import efficientgrasp
-from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
+# from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 
 from custom_load_weights import custom_load_weights
 import json
 
-from generators.cornell import CornellGenerator
+# from generators.cornell import CornellGenerator
 from dataset_processing.cornell_data import CornellDataset
 
 def parse_args(args):
@@ -31,16 +30,12 @@ def parse_args(args):
     cornell_parser = subparsers.add_parser('cornell')
     cornell_parser.add_argument('cornell_path', help = 'Path to dataset directory (ie. /Datasets/Linemod_preprocessed/).')
 
-    parser.add_argument('--rotation-representation', help = 'Which representation of the rotation should be used. Choose from "axis_angle", "rotation_matrix" and "quaternion"', default = 'axis_angle')    
-
     parser.add_argument('--weights', help = 'File containing weights to init the model parameter')
     parser.add_argument('--freeze-backbone', help = 'Freeze training of backbone layers.', action = 'store_true')
     parser.add_argument('--no-freeze-bn', help = 'Do not freeze training of BatchNormalization layers.', action = 'store_true')
 
     parser.add_argument('--batch-size', help = 'Size of the batches.', default = 1, type = int)
     parser.add_argument('--lr', help = 'Learning rate', default = 1e-4, type = float)
-    parser.add_argument('--no-color-augmentation', help = 'Do not use colorspace augmentation', action = 'store_true')
-    parser.add_argument('--no-6dof-augmentation', help = 'Do not use 6DoF augmentation', action = 'store_true')
     parser.add_argument('--phi', help = 'Hyper parameter phi', default = 0, type = int, choices = (0, 1, 2, 3, 4, 5, 6))
     parser.add_argument('--gpu', help = 'Id of the GPU to use (as reported by nvidia-smi).')
     parser.add_argument('--epochs', help = 'Number of epochs to train.', type = int, default = 100)
@@ -82,7 +77,6 @@ def main(args = None):
     train_generator, validation_generator = create_generators(args)
     print("Done!")
     
-    num_classes = 10
     num_anchors = 1
 
     # optionally choose specific GPU
@@ -91,21 +85,12 @@ def main(args = None):
 
     print("\nBuilding the Model...")
     model, prediction_model, all_layers = build_EfficientGrasp(args.phi,
-                                                              num_classes = num_classes,
                                                               num_anchors = num_anchors,
                                                               freeze_bn = not args.no_freeze_bn,
-                                                              score_threshold = args.score_threshold,
                                                               print_architecture=False)
 
-    # model, prediction_model, all_layers = efficientgrasp(args.phi,
-    #                                                     num_classes = num_classes,
-    #                                                     num_anchors = num_anchors,
-    #                                                     freeze_bn = not args.no_freeze_bn,
-    #                                                     score_threshold = args.score_threshold)
     print("Done!")
 
-
-    print("Done!")
     # load pretrained weights
     if args.weights:
         if args.weights == 'imagenet':
@@ -120,7 +105,7 @@ def main(args = None):
         else:
             print('Loading model, this may take a second...')
             custom_load_weights(filepath = args.weights, layers = all_layers, skip_mismatch = True)
-            print("\nDone!")
+            print("\nCustom Weights Loaded!")
 
     # freeze backbone layers
     if args.freeze_backbone:
@@ -133,7 +118,7 @@ def main(args = None):
     # compile model    
     # Default Adam optimizer
     # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
-    model.compile(optimizer=Adam(lr = args.lr, clipvalue = 0.0001),
+    model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001),
                   loss={'regression': mse})
 
     # # Accumulate adam optimizer
@@ -201,7 +186,7 @@ def main(args = None):
             validation_data = validation_generator
         )
     os.makedirs(args.snapshot_path, exist_ok = True)
-    model.save(os.path.join(args.snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}_finish.h5'.format(phi = str(args.phi), metric = "val_grasp_loss", dataset_type = args.dataset_type)))
+    model.save(os.path.join(args.snapshot_path, '{dataset_type}_finish.h5'.format(dataset_type = args.dataset_type)))
     return
 
 def allow_gpu_growth_memory():
@@ -235,7 +220,6 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         snapshot_path = args.snapshot_path
         save_path = args.validation_image_save_path
         tensorboard_dir = args.tensorboard_dir
-        # metric_to_monitor = "val_grasp_loss"
         metric_to_monitor = "grasp_accuracy"
         mode = "max"
     else:
@@ -250,7 +234,6 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir = tensorboard_dir,
             histogram_freq = 0,
-            # batch_size = args.batch_size,
             write_graph = True,
             write_grads = False,
             write_images = False,
@@ -270,7 +253,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         # ensure directory created first; otherwise h5py will error after epoch.
         os.makedirs(snapshot_path, exist_ok = True)
         # checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}.h5'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
-        checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, 'phi_{phi}_{dataset_type}_best_{metric}'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
+        checkpoint = keras.callbacks.ModelCheckpoint(os.path.join(snapshot_path, '{dataset_type}_best_{metric}.h5'.format(phi = str(args.phi), metric = metric_to_monitor, dataset_type = args.dataset_type)),
                                                      verbose = 1,
                                                      #save_weights_only = True,
                                                      save_best_only = True,
