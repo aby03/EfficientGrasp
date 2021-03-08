@@ -389,18 +389,39 @@ class Grasp:
         else:
             self.sin_t = sin_t
             self.cos_t = cos_t
+        
+        # Normalization constants
+        y_std = 1.0
+        x_std = 1.0
+        sin_std = 1.0
+        cos_std = 1.0
+        h_std = 1.0
+        w_std = 1.0
+        
+        y_mean = 0.0
+        x_mean = 0.0
+        sin_mean = 0.0
+        cos_mean = 0.0
+        h_mean = 0.0
+        w_mean = 0.0
 
-    def unnormalize(self, center, sin_t, cos_t, length, width):
-        factor = 50.0
-        sin_t = sin_t / factor
-        cos_t = cos_t / factor
-        return center, sin_t, cos_t, length, width
+    def unnormalize(self, center, sin_t, cos_t, h, w):
+        center[0] = center[0] * y_std + y_mean
+        center[1] = center[1] * x_std + x_mean
+        sin_t = sin_t * sin_std + sin_mean
+        cos_t = cos_t * cos_std + cos_mean
+        h = h * h_std + h_mean
+        w = w * w_std + w_mean
+        return center, sin_t, cos_t, h, w
 
-    def normalize(self, center, sin_t, cos_t, length, width):
-        factor = 50.0
-        sin_t = factor * sin_t
-        cos_t = factor * cos_t
-        return center, sin_t, cos_t, length, width
+    def normalize(self, center, sin_t, cos_t, h, w):
+        center[0] = (center[0] - y_mean) / y_std
+        center[1] = (center[1] - x_mean) / x_std
+        sin_t = (sin_t - sin_mean) / sin_std
+        cos_t = (cos_t - cos_mean) / cos_std
+        h = (h - h_mean) / h_std
+        w = (w - w_mean) / w_std
+        return center, sin_t, cos_t, h, w
 
     @property
     def as_list(self):
