@@ -96,6 +96,7 @@ class CornellDataset(Sequence):
         rgd_img.zoom(zoom)
         init_shape = (min(480 - top, self.output_size), min(640 - left, self.output_size))
         final_shape = (self.output_size, self.output_size)
+        # Scale (y,x)
         scale = (self.output_size/min(480 - top, self.output_size),self.output_size/min(640 - left, self.output_size))
         rgd_img.resize((self.output_size, self.output_size))
         if normalise:
@@ -145,7 +146,7 @@ class CornellDataset(Sequence):
                 # Pad count
                 count = 30
                 for g_id in range(len(gtbb.grs)):
-                    # Get Grasp as list [x y angle(in rad) h w]
+                    # Get Grasp as list [y x sin_t cos_t h w] AFTER NORMALIZATION
                     grasp = (gtbb[g_id].as_grasp).as_list 
                     # Store each grasp for an image
                     y_grasp_image.append(grasp)
@@ -193,7 +194,7 @@ class CornellDataset(Sequence):
                 # Pick all grasps
                 y_grasp_image = []
                 for g_id in range(len(gtbb.grs)):
-                    # Get Grasp as list [x y angle(in rad) h w]
+                    # Get Grasp as list [y x sin_t cos_t h w] AFTER NORMALIZATION
                     grasp = (gtbb[g_id].as_grasp).as_list 
                     # Store each grasp for an image
                     y_grasp_image.append(grasp)

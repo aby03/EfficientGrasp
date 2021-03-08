@@ -101,7 +101,8 @@ class GraspRectangles:
             for l in f:
                 x, y, theta, w, h = [float(v) for v in l[:-1].split(';')]
                 # index based on row, column (y,x), and the Jacquard dataset's angles are flipped around an axis.
-                grs.append(Grasp(np.array([y, x]), -theta / 180.0 * np.pi, w, h).as_gr)
+                # grs.append(Grasp(np.array([y, x]), -theta / 180.0 * np.pi, w, h).as_gr)
+                grs.append(Grasp(np.array([y, x]), np.sin(-theta), np.cos(-theta), w, h).as_gr)
         grs = cls(grs)
         grs.scale(scale)
         return grs
@@ -196,6 +197,8 @@ class GraspRectangles:
 class GraspRectangle:
     """
     Representation of a grasp in the common "Grasp Rectangle" format.
+    self.points: 2d numpy array (4,2)
+    [0, 0] is 1st point y, [0, 1] is 1nd point x
     """
 
     def __init__(self, points):
@@ -218,7 +221,7 @@ class GraspRectangle:
         """
         :return: GraspRectangle converted to a Grasp
         """
-        return Grasp(self.center, self.angle, length=self.length, width=self.width)
+        return Grasp(self.center, np.sin(self.angle), np.cos(self.angle), length=self.length, width=self.width)
 
     @property
     def center(self):
@@ -257,7 +260,7 @@ class GraspRectangle:
         :param shape: Output shape
         :return: Indices of pixels within the centre thrid of the grasp rectangle.
         """
-        return Grasp(self.center, self.angle, length=self.length / 3, width=self.width).as_gr.polygon_coords(shape)
+        return Grasp(self.center, np.sin(self.angle), np.cos(self.angle), length=self.length / 3, width=self.width).as_gr.polygon_coords(shape)
 
     def iou(self, gr, angle_threshold=np.pi / 6):
         """
@@ -326,6 +329,7 @@ class GraspRectangle:
     def corner_scale(self, factor):
         """
         :param factor: Scale grasp rectangle by factor
+        Scale and points are in (y,x) format
         """
         if factor == (1.0, 1.0):
             return
@@ -365,21 +369,67 @@ class Grasp:
     A Grasp represented by a center pixel, rotation angle and gripper width (length)
     """
 
-    def __init__(self, center, angle, length=60, width=30, quality=1):
-        self.center = center
-        self.angle = angle  # Positive angle means rotate anti-clockwise from horizontal.
+    def __init__(self, center, sin_t, cos_t, length=60, width=30, quality=1, unnorm=False):
+        # Unnormalize coords first if values coming from prediction
+        if unnorm:
+            center, sin_t, cos_t, length, width = self.unnormalize(center, sin_t, cos_t, length, width)
+        
+        # Assign Values
+        self.center = center    # in [y, x] format
+        # self.angle = angle  # Positive angle means rotate anti-clockwise from horizontal.
         self.quality = quality
         self.length = length
         self.width = width
 
+        # Apply sin cos constraint
+        if abs(sin_t**2 + cos_t**2 - 1) > 1e-4:
+            norm_fact = (sin_t**2 + cos_t**2)**0.5
+            self.sin_t = sin_t / norm_fact
+            self.cos_t = cos_t / norm_fact
+        else:
+            self.sin_t = sin_t
+            self.cos_t = cos_t
+
+    def unnormalize(self, center, sin_t, cos_t, length, width):
+        factor = 50.0
+        sin_t = sin_t / factor
+        cos_t = cos_t / factor
+        return center, sin_t, cos_t, length, width
+
+    def normalize(self, center, sin_t, cos_t, length, width):
+        factor = 50.0
+        sin_t = factor * sin_t
+        cos_t = factor * cos_t
+        return center, sin_t, cos_t, length, width
+
     @property
     def as_list(self):
-        factor = 100.0
-        return [*self.center, 
-                np.sin(self.angle)*factor,
-                np.cos(self.angle)*factor, 
-                self.length, 
-                self.width]
+        center, sin_t, cos_t, length, width = self.normalize(self.center, self.sin_t, self.cos_t, self.length, self.width)
+        return [*center, 
+                sin_t,
+                cos_t, 
+                length, 
+                width]
+    @property
+    def as_bbox(self):
+        """
+        Convert to list of bboxes
+        :return: list of points in [x,y] format
+        """
+        xo = self.cos_t
+        yo = self.sin_t
+
+        y1 = self.center[0] + self.length / 2 * yo
+        x1 = self.center[1] - self.length / 2 * xo
+        y2 = self.center[0] - self.length / 2 * yo
+        x2 = self.center[1] + self.length / 2 * xo
+
+        return  [
+                    [x1 - self.width / 2 * yo, y1 - self.width / 2 * xo],
+                    [x2 - self.width / 2 * yo, y2 - self.width / 2 * xo],
+                    [x2 + self.width / 2 * yo, y2 + self.width / 2 * xo],
+                    [x1 + self.width / 2 * yo, y1 + self.width / 2 * xo],
+                ]
 
     @property
     def as_gr(self):
@@ -387,8 +437,8 @@ class Grasp:
         Convert to GraspRectangle
         :return: GraspRectangle representation of grasp.
         """
-        xo = np.cos(self.angle)
-        yo = np.sin(self.angle)
+        xo = self.cos_t
+        yo = self.sin_t
 
         y1 = self.center[0] + self.length / 2 * yo
         x1 = self.center[1] - self.length / 2 * xo
@@ -432,11 +482,12 @@ class Grasp:
         :return: string in Jacquard format
         """
         # Output in jacquard format.
+        angle = np.arctan(sin_t/cos_t)
         return '%0.2f;%0.2f;%0.2f;%0.2f;%0.2f' % (
-            self.center[1] * scale, self.center[0] * scale, -1 * self.angle * 180 / np.pi, self.length * scale,
+            self.center[1] * scale, self.center[0] * scale, -1 * angle * 180 / np.pi, self.length * scale,
             self.width * scale)
 
-
+# Not used, need to update
 def detect_grasps(q_img, ang_img, width_img=None, no_grasps=1):
     """
     Detect grasps in a network output.

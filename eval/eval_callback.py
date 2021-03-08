@@ -7,6 +7,7 @@ import math
 import sys
 sys.path.append(".")
 from generators.cornell import *
+from dataset_processing.grasp import Grasp
 from losses import grasp_loss
 
 from shapely import speedups
@@ -84,8 +85,6 @@ def evaluate(
     """
     # gather all detections and annotations
     pred_grasps, true_grasps = _get_detections(generator, model, save_path=save_path)
-
-    mse = tf.keras.losses.MeanSquaredError()
     
     # Grasp Loss
     loss_v = []
@@ -97,7 +96,6 @@ def evaluate(
         # For a grasp
         for i in range(len(true_grasps[j])):
             cur_loss = grasp_loss(true_grasps[j][i], pred_grasps[j])
-            # cur_loss = mse(np.asarray(true_grasps[j][i])[np.newaxis,:], np.asarray(pred_grasps[j])[np.newaxis,:])
             if cur_loss < min_loss:
                 min_loss = cur_loss
                 min_index = i
@@ -111,8 +109,12 @@ def evaluate(
     angle_diff_list = []
     for j in range(len(true_grasps)):
         index = min_loss_index[j]
-        bbox_true = grasp_to_bbox( *true_grasps[j][index] )
-        bbox_pred = grasp_to_bbox( *pred_grasps[j] )
+        # Converted to Grasp obj, unnormalized, in [y,x] format
+        true_grasp_obj = Grasp(true_grasps[j][index][0:2], *true_grasps[j][index][2:], unnorm = True)
+        pred_grasp_obj = Grasp(pred_grasps[j][0:2], *pred_grasps[j][2:], unnorm=True)
+        # converted to list of bboxes in [x, y] format
+        bbox_true = true_grasp_obj.as_bbox
+        bbox_pred = pred_grasp_obj.as_bbox
         
         #IoU
         try:
@@ -127,23 +129,15 @@ def evaluate(
             print('Bbox true:', bbox_true)
         
         #Angle Diff
-        factor = 100.0
-        true_sin = true_grasps[j][index][2] / factor
-        true_cos = true_grasps[j][index][3] / factor
-        
+        true_sin = true_grasp_obj.sin_t
+        true_cos = true_grasp_obj.cos_t  
         if true_cos != 0:
             true_angle = np.arctan(true_sin/true_cos) * 180/np.pi
         else:
             true_angle = 90
-        pred_sin = pred_grasps[j][2]
-        pred_cos = pred_grasps[j][3]
-
-        pred_sin = pred_sin / factor
-        pred_cos = pred_cos / factor
-        norm_fact = (pred_sin**2 + pred_cos**2) ** 0.5
-        pred_sin = pred_sin / norm_fact
-        pred_cos = pred_cos / norm_fact
-
+        
+        pred_sin = pred_grasp_obj.sin_t
+        pred_cos = pred_grasp_obj.cos_t
         if pred_cos != 0:
             pred_angle = np.arctan(pred_sin/pred_cos) * 180/np.pi
         else:

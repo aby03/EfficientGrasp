@@ -30,7 +30,8 @@ model, prediction_model, all_layers = build_EfficientGrasp(0,
                                                         print_architecture=False)
 
 # load pretrained weights
-model.load_weights('checkpoints/07_03_2021_04_00_02/cornell_finish.h5', by_name=True)
+# model.load_weights('checkpoints/07_03_2021_06_07_18/cornell_finish.h5', by_name=True)
+model.load_weights('checkpoints/08_03_2021_19_42_08/cornell_finish.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE
@@ -56,14 +57,14 @@ for i, filename in enumerate(train_data):
     test_out = model.predict(test_data)
     print('## Grasp ', i, " ##: ", test_out)
     test_out = test_out[0]
-    factor = 10.0
-    test_out[2] = test_out[2] / factor
-    test_out[3] = test_out[3] / factor
-    norm_fact = (test_out[2]**2 + test_out[3]**2)**0.5
-    test_out[2] = test_out[2] / norm_fact
-    test_out[3] = test_out[3] / norm_fact
-    angle = np.arctan(test_out[2]/test_out[3])
-    pred_grasp = Grasp((test_out[0], test_out[1]), angle, test_out[4], test_out[5])
+    # factor = 10.0
+    # test_out[2] = test_out[2] / factor
+    # test_out[3] = test_out[3] / factor
+    # norm_fact = (test_out[2]**2 + test_out[3]**2)**0.5
+    # test_out[2] = test_out[2] / norm_fact
+    # test_out[3] = test_out[3] / norm_fact
+    # angle = np.arctan(test_out[2]/test_out[3])
+    pred_grasp = Grasp(test_out[0:2], *test_out[2:], unnorm=True)
 
     ## DO TESTING
     # Layer Output
