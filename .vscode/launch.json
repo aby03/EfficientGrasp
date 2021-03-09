@@ -21,7 +21,7 @@
             "args" : ["--phi", "0",
                       "--batch-size", "1",
                       "--lr", "1e-4",
-                      "--epochs", "300",
+                      "--epochs", "200",
                       "--no-snapshots",
                     //   "--no-evaluation",
                       "--gpu", "0",

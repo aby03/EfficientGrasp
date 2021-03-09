@@ -9,6 +9,7 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import Adam, Adam_accumulate
 
 from model import build_EfficientGrasp
+# from model_split import build_EfficientGrasp
 from losses import smooth_l1, focal, transformation_loss, grasp_loss_bt
 from efficientnet import BASE_WEIGHTS_PATH, WEIGHTS_HASHES
 
@@ -265,12 +266,12 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     # callbacks.append(keras.callbacks.ReduceLROnPlateau(
     #     monitor    = 'loss',
     #     factor     = 0.5,
-    #     patience   = 5,
+    #     patience   = 50,
     #     verbose    = 1,
     #     mode       = 'min',
     #     min_delta  = 0.0001,
     #     cooldown   = 0,
-    #     min_lr     = 1e-7
+    #     min_lr     = 1e-5
     # ))
 
     return callbacks

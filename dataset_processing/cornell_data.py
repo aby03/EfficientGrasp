@@ -2,8 +2,10 @@ import glob
 import os
 
 #from utils.dataset_processing 
-from dataset_processing import grasp, image
-# import grasp, image
+from dataset_processing import image
+from dataset_processing import grasp as gp
+# import image
+# import grasp as gp
 # from .grasp_data import GraspDatasetBase
 import numpy as np
 import random
@@ -27,8 +29,8 @@ class CornellDataset(Sequence):
         :param dataset_path: Cornell Dataset directory.
         :param ds_rotate: If splitting the dataset, rotate the list of items by this fraction first
         """
-        self.random_rotate = train
-        self.random_zoom = train
+        self.random_rotate = False
+        self.random_zoom = False
 
         # Generator
         self.output_size = output_size
@@ -73,14 +75,14 @@ class CornellDataset(Sequence):
         return len(self.rgd_files)
 
     def _get_crop_attrs(self, idx):
-        gtbbs = grasp.GraspRectangles.load_from_cornell_file(self.dataset+self.grasp_files[idx])
+        gtbbs = gp.GraspRectangles.load_from_cornell_file(self.dataset+self.grasp_files[idx])
         center = gtbbs.center
         left = max(0, min(center[1] - self.output_size // 2, 640 - self.output_size))
         top = max(0, min(center[0] - self.output_size // 2, 480 - self.output_size))
         return center, left, top
 
     def get_gtbb(self, idx, rot=0, zoom=1.0, scale=(1.0,1.0)):
-        gtbbs = grasp.GraspRectangles.load_from_cornell_file(self.dataset+self.grasp_files[idx])
+        gtbbs = gp.GraspRectangles.load_from_cornell_file(self.dataset+self.grasp_files[idx])
         center, left, top = self._get_crop_attrs(idx)
         gtbbs.rotate(rot, center)
         gtbbs.offset((-top, -left))
@@ -148,6 +150,21 @@ class CornellDataset(Sequence):
                 for g_id in range(len(gtbb.grs)):
                     # Get Grasp as list [y x sin_t cos_t h w] AFTER NORMALIZATION
                     grasp = (gtbb[g_id].as_grasp).as_list 
+                    # # DEBUG
+                    # g1 = gtbb[g_id]
+                    # print('Orig points: ', g1.points)
+                    # g2 = (gtbb[g_id].as_grasp).as_list
+                    # print('Norm grasp', g2)
+                    # g3 = gp.Grasp(g2[0:2], *g2[2:], unnorm=True)
+                    # g4 = g3.as_gr.points
+                    # print('Points after', g4)
+                    # g1.points = g4
+                    # g5 = g1.as_grasp.as_list
+                    # print('Norm grasp again', g5)
+                    # g6 = gp.Grasp(g5[0:2], *g5[2:], unnorm=True)
+                    # print('Points after again', g6.as_gr.points)
+                    # print("===========")
+                    # # DEBUG
                     # Store each grasp for an image
                     y_grasp_image.append(grasp)
                     count -= 1

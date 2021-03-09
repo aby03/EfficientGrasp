@@ -3,6 +3,24 @@ import numpy as np
 from skimage.draw import polygon
 from skimage.feature import peak_local_max
 
+# Normalization constants
+GRASP_MEAN = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+GRASP_STD = [1.0, 1.0, 0.02, 0.02, 1.0, 1.0]
+# GRASP_MEAN = [241.8, 291.3, 0.1664, 0.1093, 27.33, 46.25]
+# GRASP_STD = [26.88,  42.22,   0.7140,  0.6712, 11.29, 21.29]
+y_std = GRASP_STD[0]
+x_std = GRASP_STD[1]
+sin_std = GRASP_STD[2]
+cos_std = GRASP_STD[3]
+h_std = GRASP_STD[4]
+w_std = GRASP_STD[5]
+
+y_mean = GRASP_MEAN[0]
+x_mean = GRASP_MEAN[1]
+sin_mean = GRASP_MEAN[2]
+cos_mean = GRASP_MEAN[3]
+h_mean = GRASP_MEAN[4]
+w_mean = GRASP_MEAN[5]
 
 def _gr_text_to_no(l, offset=(0, 0)):
     """
@@ -389,21 +407,6 @@ class Grasp:
         else:
             self.sin_t = sin_t
             self.cos_t = cos_t
-        
-        # Normalization constants
-        y_std = 1.0
-        x_std = 1.0
-        sin_std = 1.0
-        cos_std = 1.0
-        h_std = 1.0
-        w_std = 1.0
-        
-        y_mean = 0.0
-        x_mean = 0.0
-        sin_mean = 0.0
-        cos_mean = 0.0
-        h_mean = 0.0
-        w_mean = 0.0
 
     def unnormalize(self, center, sin_t, cos_t, h, w):
         center[0] = center[0] * y_std + y_mean

@@ -74,16 +74,38 @@ def build_EfficientGrasp(phi,
     bifpn_model = models.Model(inputs = [image_input], outputs = [fpn_feature_maps], name = 'bifpn')
     
     # Build GraspNet
-    grasp_net = GraspNet(subnet_width,
+    center_net = GraspNet(subnet_width,
                         subnet_depth,
                         num_iteration_steps = subnet_num_iteration_steps,
                         freeze_bn=freeze_bn, 
                         use_group_norm = True,
                         num_groups_gn = num_groups_gn,
-                        name='grasp_net')
+                        name='center_net')
+    angle_net = GraspNet(subnet_width,
+                        subnet_depth,
+                        num_iteration_steps = subnet_num_iteration_steps,
+                        freeze_bn=freeze_bn, 
+                        use_group_norm = True,
+                        num_groups_gn = num_groups_gn,
+                        name='angle_net')
+    dim_net = GraspNet(subnet_width,
+                        subnet_depth,
+                        num_iteration_steps = subnet_num_iteration_steps,
+                        freeze_bn=freeze_bn, 
+                        use_group_norm = True,
+                        num_groups_gn = num_groups_gn,
+                        name='dim_net')
     # Apply GraspNet
-    grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
+    center_regression = [center_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    center_regression = layers.Concatenate(axis=1, name='regression_center')(center_regression)
+
+    angle_regression = [angle_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    angle_regression = layers.Concatenate(axis=1, name='regression_angle')(angle_regression)
+
+    dim_regression = [dim_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+    dim_regression = layers.Concatenate(axis=1, name='regression_dim')(dim_regression)
+
+    grasp_regression = layers.Concatenate(axis=2, name='feature_concat')([center_regression, angle_regression, dim_regression])
     grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
     # grasp_regression = layers.Dense(1024,
@@ -114,11 +136,13 @@ def build_EfficientGrasp(phi,
         # print(len(backbone_model.layers))
         print(len(bifpn_model.layers))
         print(len(efficientgrasp_train.layers))
-        print(len(grasp_net.layers))
+        print('Center_Net: ', len(center_net.layers))
+        print('Angle_Net: ', len(angle_net.layers))
+        print('Dim_Net: ', len(dim_net.layers))
         # print_models(efficientgrasp_train, bifpn_model, grasp_net)
         
     #create list with all layers to be able to load all layer weights because sometimes the whole subnet weight loading is skipped if the output shape does not match instead of skipping just the output layer
-    all_layers = list(set(efficientgrasp_train.layers + grasp_net.layers))
+    all_layers = list(set(efficientgrasp_train.layers + center_net.layers + angle_net.layers + dim_net.layers))
     
     return efficientgrasp_train, efficientgrasp_prediction, all_layers
 
@@ -135,14 +159,16 @@ def get_scaled_parameters(phi):
     #info tuples with scalable parameters
     image_sizes = (512, 640, 768, 896, 1024, 1280, 1408)
     # bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
-    bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
+    bifpn_widths = (256, 88, 112, 160, 224, 288, 384)
     # bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     # subnet_depths = (3, 3, 3, 4, 4, 4, 5)
-    subnet_depths = (3, 3, 3, 4, 4, 4, 5)
-    subnet_width = (64, 88, 112, 160, 224, 288, 384)
-    subnet_iteration_steps = (1, 1, 1, 2, 2, 2, 3)
-    num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
+    subnet_width = (128, 128)
+    subnet_depths = (5, 3, 3, 4, 4, 4, 5)
+    subnet_iteration_steps = (2, 1, 1, 2, 2, 2, 3)
+    # subnet_iteration_steps = (1, 1, 1, 2, 2, 2, 3)
+    num_groups_gn = (32, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
+    # num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
     backbones = (EfficientNetB0,
                  EfficientNetB1,
                  EfficientNetB2,
@@ -154,8 +180,8 @@ def get_scaled_parameters(phi):
     parameters = {"input_size": image_sizes[phi],
                   "bifpn_width": bifpn_widths[phi],
                   "bifpn_depth": bifpn_depths[phi],
-                  "subnet_depth": subnet_depths[phi],
                   "subnet_width": subnet_width[phi],
+                  "subnet_depth": subnet_depths[phi],
                   "subnet_num_iteration_steps": subnet_iteration_steps[phi],
                   "num_groups_gn": num_groups_gn[phi],
                   "backbone_class": backbones[phi]}
@@ -235,22 +261,22 @@ def prepare_feature_maps_for_BiFPN(C3, C4, C5, num_channels, num_groups_gn, free
     """
     P3_in = C3
     P3_in = layers.Conv2D(num_channels, kernel_size = 1, padding = 'same', name = 'fpn_cells/cell_0/fnode3/resample_0_0_8/conv2d')(P3_in)
-    P3_in = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode3/resample_0_0_8/bn')(P3_in)
+    # P3_in = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode3/resample_0_0_8/bn')(P3_in)
     
     P4_in = C4
     P4_in_1 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode2/resample_0_1_7/conv2d')(P4_in)
-    P4_in_1 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode2/resample_0_1_7/bn')(P4_in_1)
+    # P4_in_1 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode2/resample_0_1_7/bn')(P4_in_1)
     P4_in_2 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode4/resample_0_1_9/conv2d')(P4_in)
-    P4_in_2 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode4/resample_0_1_9/bn')(P4_in_2)
+    # P4_in_2 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode4/resample_0_1_9/bn')(P4_in_2)
     
     P5_in = C5
     P5_in_1 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode1/resample_0_2_6/conv2d')(P5_in)
-    P5_in_1 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode1/resample_0_2_6/bn')(P5_in_1)
+    # P5_in_1 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode1/resample_0_2_6/bn')(P5_in_1)
     P5_in_2 = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='fpn_cells/cell_0/fnode5/resample_0_2_10/conv2d')(P5_in)
-    P5_in_2 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode5/resample_0_2_10/bn')(P5_in_2)
+    # P5_in_2 = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='fpn_cells/cell_0/fnode5/resample_0_2_10/bn')(P5_in_2)
     
     P6_in = layers.Conv2D(num_channels, kernel_size=1, padding='same', name='resample_p6/conv2d')(C5)
-    P6_in = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='resample_p6/bn')(P6_in)
+    # P6_in = GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name='resample_p6/bn')(P6_in)
     P6_in = layers.MaxPooling2D(pool_size=3, strides=2, padding='same', name='resample_p6/maxpool')(P6_in)
     
     P7_in = layers.MaxPooling2D(pool_size=3, strides=2, padding='same', name='resample_p7/maxpool')(P6_in)
@@ -356,8 +382,8 @@ def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn = Fal
     """
     f1 = layers.SeparableConv2D(num_channels, kernel_size = kernel_size, strides = strides, padding = 'same', use_bias = True, name = f'{name}/conv')
     f2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{name}/bn')
-    # return reduce(lambda f, g: lambda *args, **kwargs: f(*args, **kwargs), (f1, f2))
-    return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
+    return reduce(lambda f, g: lambda *args, **kwargs: f(*args, **kwargs), (f1, f2))
+    # return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
 
 class IterativeGraspSubNet(models.Model):
     def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 1, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
@@ -418,7 +444,7 @@ class GraspNet(models.Model):
         self.num_iteration_steps = num_iteration_steps
         self.use_group_norm = use_group_norm
         self.num_groups_gn = num_groups_gn
-        self.num_values = 6 # x, y, sin_t, cos_t, h, w
+        self.num_values = 2 # x, y, sin_t, cos_t, h, w
         # self.num_values = 5 # x, y, tan_t, h, w
         channel_axis=-1
         options = {
@@ -448,7 +474,7 @@ class GraspNet(models.Model):
                                                     freeze_bn = freeze_bn,
                                                     use_group_norm = self.use_group_norm,
                                                     num_groups_gn = self.num_groups_gn,
-                                                    name = "iterative_grasp_subnet")
+                                                    name = f'{self.name}/iter_subnet')
         
         self.head = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/grasp-predict', **options)
         self.reshape = layers.Reshape((-1, self.num_values))
@@ -728,78 +754,78 @@ class GraspNet(models.Model):
 #         return outputs
     
 
-def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, input_size, anchor_parameters):
-    """
-    Applies the subnetworks to the BiFPN feature maps
-    Args:
-        box_net, class_net, rotation_net, translation_net: Subnetworks
-        fpn_feature_maps: Sequence of the BiFPN feature maps of the different levels (P3, P4, P5, P6, P7)
-        image_input, camera_parameters_input: The image and camera parameter input layer
-        input size: Integer representing the input image resolution
-        anchor_parameters: Struct containing anchor parameters. If None, default values are used.
+# def apply_subnets_to_feature_maps(grasp_net, fpn_feature_maps, image_input, input_size, anchor_parameters):
+#     """
+#     Applies the subnetworks to the BiFPN feature maps
+#     Args:
+#         box_net, class_net, rotation_net, translation_net: Subnetworks
+#         fpn_feature_maps: Sequence of the BiFPN feature maps of the different levels (P3, P4, P5, P6, P7)
+#         image_input, camera_parameters_input: The image and camera parameter input layer
+#         input size: Integer representing the input image resolution
+#         anchor_parameters: Struct containing anchor parameters. If None, default values are used.
     
-    Returns:
-       classification: Tensor containing the classification outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, num_classes)
-       bbox_regression: Tensor containing the deltas of anchor boxes to the GT 2D bounding boxes for all anchor boxes. Shape (batch_size, num_anchor_boxes, 4)
-       rotation: Tensor containing the rotation outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, num_rotation_parameters)
-       translation: Tensor containing the translation outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, 3)
-       transformation: Tensor containing the concatenated rotation and translation outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, num_rotation_parameters + 3)
-                       Rotation and Translation are concatenated because the Keras Loss function takes only one GT and prediction tensor respectively as input but the transformation loss needs both
-       bboxes: Tensor containing the 2D bounding boxes for all anchor boxes. Shape (batch_size, num_anchor_boxes, 4)
-    """
-    # classification = [class_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    # classification = layers.Concatenate(axis=1, name='classification')(classification)
+#     Returns:
+#        classification: Tensor containing the classification outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, num_classes)
+#        bbox_regression: Tensor containing the deltas of anchor boxes to the GT 2D bounding boxes for all anchor boxes. Shape (batch_size, num_anchor_boxes, 4)
+#        rotation: Tensor containing the rotation outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, num_rotation_parameters)
+#        translation: Tensor containing the translation outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, 3)
+#        transformation: Tensor containing the concatenated rotation and translation outputs for all anchor boxes. Shape (batch_size, num_anchor_boxes, num_rotation_parameters + 3)
+#                        Rotation and Translation are concatenated because the Keras Loss function takes only one GT and prediction tensor respectively as input but the transformation loss needs both
+#        bboxes: Tensor containing the 2D bounding boxes for all anchor boxes. Shape (batch_size, num_anchor_boxes, 4)
+#     """
+#     # classification = [class_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+#     # classification = layers.Concatenate(axis=1, name='classification')(classification)
     
-    # bbox_regression = [box_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    # bbox_regression = layers.Concatenate(axis=1, name='regression')(bbox_regression)
+#     # bbox_regression = [box_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+#     # bbox_regression = layers.Concatenate(axis=1, name='regression')(bbox_regression)
     
-    grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
+#     grasp_regression = [grasp_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+#     grasp_regression = layers.Concatenate(axis=1, name='regression_c')(grasp_regression)
 
-    grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
-    # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
-    # grasp_regression = layers.Dense(1024,
-    #                                 # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
-    #                                 # bias_regularizer=regularizers.l2(1e-4),
-    #                                 # activity_regularizer=regularizers.l2(1e-5),
-    #                                 name='regression_d1')(grasp_regression)
-    grasp_regression = layers.Dense(6,
-                                    # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
-                                    # bias_regularizer=regularizers.l2(1e-4),
-                                    # activity_regularizer=regularizers.l2(1e-5),
-                                    name='regression_d2')(grasp_regression)
-    grasp_regression = layers.Flatten(name='regression')(grasp_regression)
-    # grasp_regression = layers.Lambda(lambda x: tf.nn.swish(x), name='regression')(grasp_regression)
-    # rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    # rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)
+#     grasp_regression = layers.Reshape((-1,5456*6))(grasp_regression) # 5456 for num_anchors=1 && 49104 for 9
+#     # grasp_5 = layers.Reshape((-1,dim))(grasp_5)
+#     # grasp_regression = layers.Dense(1024,
+#     #                                 # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+#     #                                 # bias_regularizer=regularizers.l2(1e-4),
+#     #                                 # activity_regularizer=regularizers.l2(1e-5),
+#     #                                 name='regression_d1')(grasp_regression)
+#     grasp_regression = layers.Dense(6,
+#                                     # kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),
+#                                     # bias_regularizer=regularizers.l2(1e-4),
+#                                     # activity_regularizer=regularizers.l2(1e-5),
+#                                     name='regression_d2')(grasp_regression)
+#     grasp_regression = layers.Flatten(name='regression')(grasp_regression)
+#     # grasp_regression = layers.Lambda(lambda x: tf.nn.swish(x), name='regression')(grasp_regression)
+#     # rotation = [rotation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+#     # rotation = layers.Concatenate(axis = 1, name='rotation')(rotation)
     
-    # translation_raw = [translation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
-    # translation_raw = layers.Concatenate(axis = 1, name='translation_raw_outputs')(translation_raw)
+#     # translation_raw = [translation_net([feature, i]) for i, feature in enumerate(fpn_feature_maps)]
+#     # translation_raw = layers.Concatenate(axis = 1, name='translation_raw_outputs')(translation_raw)
     
-    #get anchors and apply predicted translation offsets to translation anchors
-    # anchors, translation_anchors = anchors_for_shape((input_size, input_size), anchor_params = anchor_parameters)
-    # translation_anchors_input = np.expand_dims(translation_anchors, axis = 0)
+#     #get anchors and apply predicted translation offsets to translation anchors
+#     # anchors, translation_anchors = anchors_for_shape((input_size, input_size), anchor_params = anchor_parameters)
+#     # translation_anchors_input = np.expand_dims(translation_anchors, axis = 0)
     
-    # translation_xy_Tz = RegressTranslation(name = 'translation_regression')([translation_anchors_input, translation_raw])
-    # translation = CalculateTxTy(name = 'translation')(translation_xy_Tz,
-    #                                                     fx = camera_parameters_input[:, 0],
-    #                                                     fy = camera_parameters_input[:, 1],
-    #                                                     px = camera_parameters_input[:, 2],
-    #                                                     py = camera_parameters_input[:, 3],
-    #                                                     tz_scale = camera_parameters_input[:, 4],
-    #                                                     image_scale = camera_parameters_input[:, 5])
+#     # translation_xy_Tz = RegressTranslation(name = 'translation_regression')([translation_anchors_input, translation_raw])
+#     # translation = CalculateTxTy(name = 'translation')(translation_xy_Tz,
+#     #                                                     fx = camera_parameters_input[:, 0],
+#     #                                                     fy = camera_parameters_input[:, 1],
+#     #                                                     px = camera_parameters_input[:, 2],
+#     #                                                     py = camera_parameters_input[:, 3],
+#     #                                                     tz_scale = camera_parameters_input[:, 4],
+#     #                                                     image_scale = camera_parameters_input[:, 5])
     
-    # apply predicted 2D bbox regression to anchors
-    # anchors_input = np.expand_dims(anchors, axis = 0)
-    # bboxes = RegressBoxes(name='boxes')([anchors_input, bbox_regression[..., :4]])
-    # bboxes = ClipBoxes(name='clipped_boxes')([image_input, bboxes])
+#     # apply predicted 2D bbox regression to anchors
+#     # anchors_input = np.expand_dims(anchors, axis = 0)
+#     # bboxes = RegressBoxes(name='boxes')([anchors_input, bbox_regression[..., :4]])
+#     # bboxes = ClipBoxes(name='clipped_boxes')([image_input, bboxes])
     
-    #concat rotation and translation outputs to transformation output to have a single output for transformation loss calculation
-    #standard concatenate layer throws error that shapes does not match because translation shape dim 2 is known via translation_anchors and rotation shape dim 2 is None
-    #so just use lambda layer with tf concat
-    # transformation = layers.Lambda(lambda input_list: tf.concat(input_list, axis = -1), name="transformation")([rotation, translation])
+#     #concat rotation and translation outputs to transformation output to have a single output for transformation loss calculation
+#     #standard concatenate layer throws error that shapes does not match because translation shape dim 2 is known via translation_anchors and rotation shape dim 2 is None
+#     #so just use lambda layer with tf concat
+#     # transformation = layers.Lambda(lambda input_list: tf.concat(input_list, axis = -1), name="transformation")([rotation, translation])
 
-    return grasp_regression
+#     return grasp_regression
     
 
 def print_models(*models):

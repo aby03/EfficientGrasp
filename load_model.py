@@ -17,6 +17,7 @@ allow_gpu_growth_memory()
 
 # Import rest
 from model import build_EfficientGrasp
+# from model_split import build_EfficientGrasp
 import json
 import numpy as np
 from generators.cornell import load_and_preprocess_img, proc_x, proc_y, load_bboxes, bbox_to_grasp
@@ -31,7 +32,7 @@ model, prediction_model, all_layers = build_EfficientGrasp(0,
 
 # load pretrained weights
 # model.load_weights('checkpoints/07_03_2021_06_07_18/cornell_finish.h5', by_name=True)
-model.load_weights('checkpoints/08_03_2021_19_42_08/cornell_finish.h5', by_name=True)
+model.load_weights('checkpoints/09_03_2021_17_20_00/cornell_finish.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE
@@ -39,7 +40,7 @@ print("Done!")
 
 ## Run on train set
 dataset = '/home/aby/Workspace/MTP/Datasets/Cornell/archive'
-with open(dataset+'/train.txt', 'r') as filehandle:
+with open(dataset+'/train_main.txt', 'r') as filehandle:
     train_data = json.load(filehandle)
 
 from dataset_processing.grasp import Grasp
@@ -68,6 +69,7 @@ for i, filename in enumerate(train_data):
 
     ## DO TESTING
     # Layer Output
+    # layer_name = 'feature_concat'regression_c
     layer_name = 'regression_c'
     intermediate_layer_model = keras.Model(inputs=model.input,
                                         outputs=model.get_layer(layer_name).output)
