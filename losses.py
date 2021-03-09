@@ -24,10 +24,12 @@ def grasp_loss_bt(batch_sz = 1):
                 # tf.print('*******')
                 # tf.print(y_true[i,j])
                 loss = keras.backend.minimum( keras.backend.mean( keras.backend.square(y_true[i][j] - y_pred[i]) ), loss )
+                # tf.print('******')
                 # tf.print(loss)
                 # tf.print('=============')
                 # loss = keras.backend.minimum( keras.backend.sum((y_true[i][j] - y_pred[i])**2), loss )
                 # loss = min( np.sum( (y_true[i,j,:] - y_pred[i,:])**2 ), loss)
+            # tf.print('##########')
             loss_l.append(loss)
         return loss_l
         # x_err = y_true[:, 0] - y_pred[:,0]
@@ -69,8 +71,8 @@ def grasp_loss_min(theta_err_wt = 1):
 
 def grasp_loss(y_true, y_pred):
     theta_err_wt = 1
-    x_err = y_true[0] - y_pred[0]
-    y_err = y_true[1] - y_pred[1]
+    y_err = y_true[0] - y_pred[0]
+    x_err = y_true[1] - y_pred[1]
     
     # theta_err = ((np.arctan(y_true[2]) - np.arctan(y_pred[2])) * 180 / math.pi) % 180
     # theta_err = np.minimum(theta_err, 180 - theta_err)
@@ -83,7 +85,7 @@ def grasp_loss(y_true, y_pred):
     h_err = y_true[4] - y_pred[4]
     w_err = y_true[5] - y_pred[5]
     # loss = x_err ** 2 + y_err ** 2 + theta_err_wt * (theta_err**2) + h_err ** 2 + w_err ** 2
-    loss = (x_err ** 2 + y_err ** 2 + sin_err**2 + cos_err**2 + h_err ** 2 + w_err ** 2)/6
+    loss = (y_err ** 2 + x_err ** 2 + sin_err**2 + cos_err**2 + h_err ** 2 + w_err ** 2)/6
     return loss
 
 def focal(alpha=0.25, gamma=1.5):

@@ -20,7 +20,7 @@ class CornellDataset(Sequence):
     """
 
     def __init__(self, dataset_path, list_IDs, phi=0, batch_size=1, output_size=512, n_channels=3,
-                 n_classes=10, shuffle=True, train=True, ds_rotate=0):
+                 n_classes=10, shuffle=True, train=True, ds_rotate=0, run_test=False):
         """
         :param output_size: Image output size in pixels (square)
         :param random_rotate: Whether random rotations are applied
@@ -29,8 +29,9 @@ class CornellDataset(Sequence):
         :param dataset_path: Cornell Dataset directory.
         :param ds_rotate: If splitting the dataset, rotate the list of items by this fraction first
         """
-        self.random_rotate = False
-        self.random_zoom = False
+        self.run_test = run_test
+        self.random_rotate = True
+        self.random_zoom = True
 
         # Generator
         self.output_size = output_size
@@ -44,7 +45,7 @@ class CornellDataset(Sequence):
 
         # List of rgd files of train/valid split
         self.rgd_files = list_IDs
-        self.rgd_files.sort()
+        # self.rgd_files.sort()
         # List of grasp files
         self.grasp_files = [f.replace('z.png', 'cpos.txt') for f in self.rgd_files]
         self.length = len(self.grasp_files)
@@ -114,7 +115,7 @@ class CornellDataset(Sequence):
         # Generate data
         X, y_g = self.__data_generation(indexes)
 
-        return X, [y_g]    
+        return X, y_g    
 
     def __data_generation(self, indexes):
         'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
@@ -134,9 +135,9 @@ class CornellDataset(Sequence):
                     rot = 0.0
                 # Zoom Augmentation
                 if self.random_zoom:
-                    zoom_factor = np.random.uniform(0.5, 1.0)
+                    zoom_factor = np.random.uniform(0.5, 0.875)
                 else:
-                    zoom_factor = 1.0
+                    zoom_factor = 0.875
                 
                 # Load image with zoom and rotation
                 rgd_img, scale = self.get_rgd(indexes[i], rot, zoom_factor)
@@ -204,10 +205,10 @@ class CornellDataset(Sequence):
             else:
                 # If validation data
                 # Load image with 1 zoom and 0 rotation
-                rgd_img, scale = self.get_rgd(indexes[i], 0, 1)
+                rgd_img, scale = self.get_rgd(indexes[i], 0, 0.875)
 
                 # Load bboxes
-                gtbb = self.get_gtbb(indexes[i], 0, 1, scale)
+                gtbb = self.get_gtbb(indexes[i], 0, 0.875, scale)
                 # Pick all grasps
                 y_grasp_image = []
                 for g_id in range(len(gtbb.grs)):
@@ -231,7 +232,10 @@ class CornellDataset(Sequence):
                 
             # Store sample
             X[i,] = rgd_img
-        return X, np.asarray(y_grasp)
+        if not self.run_test:
+            return X, np.asarray(y_grasp)
+        else:
+            return X, gtbb
 
 ### TESTING
 dataset = "/home/aby/Workspace/MTP/Datasets/Cornell/archive"

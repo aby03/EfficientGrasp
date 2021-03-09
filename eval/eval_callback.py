@@ -38,7 +38,7 @@ def _get_detections(generator, model, save_path = None):
 
     for i in progressbar.progressbar(range(generator.size()), prefix='Running network: '):
         image_bt, output_bt    = generator[i]
-        true_grasp_bt = output_bt[0]
+        true_grasp_bt = output_bt
         # raw_image    = generator.load_image(i)
         # image, scale = generator.preprocess_image(raw_image.copy())
         # image, scale = generator.resize_image(image)
@@ -96,11 +96,13 @@ def evaluate(
         # For a grasp
         for i in range(len(true_grasps[j])):
             cur_loss = grasp_loss(true_grasps[j][i], pred_grasps[j])
+            # print('Im {}, G {}, Loss {}'.format(j, i, cur_loss))
             if cur_loss < min_loss:
                 min_loss = cur_loss
                 min_index = i
         loss_v.append(min_loss)
-        min_loss_index.append(i)
+        min_loss_index.append(min_index)
+        # print(' === Im {} Min Loss {} Loss Index {}'.format(j, min_loss, min_index))
     avg_grasp_loss = sum(loss_v) / len(loss_v)
 
     # IoU Angle Diff

@@ -22,10 +22,12 @@
                       "--batch-size", "1",
                       "--lr", "1e-4",
                       "--epochs", "200",
-                      "--no-snapshots",
+                    //   "--no-snapshots",
                     //   "--no-evaluation",
+                      "--start-epoch", "0",
                       "--gpu", "0",
                       "--weights", "imagenet",
+                    //   "--weights", "checkpoints/09_03_2021_18_44_01/cornell_finish.h5",
                       "cornell", "/home/aby/Workspace/MTP/Datasets/Cornell/archive"]
         }       
     ]

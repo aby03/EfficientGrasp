@@ -99,7 +99,7 @@ def build_EfficientGrasp(phi,
     grasp_regression = layers.Flatten(name='regression')(grasp_regression)
     
     #get the EfficientPose model for training without NMS and the rotation and translation output combined in the transformation output because of the loss calculation
-    efficientgrasp_train = models.Model(inputs = [image_input], outputs = [grasp_regression], name = 'efficientgrasp')
+    efficientgrasp_train = models.Model(inputs = [image_input], outputs = grasp_regression, name = 'efficientgrasp')
 
     # # filter detections (apply NMS / score threshold / select top-k)
     # filtered_detections = FilterDetections(num_rotation_parameters = num_rotation_parameters,
@@ -108,7 +108,7 @@ def build_EfficientGrasp(phi,
     #                                        score_threshold = score_threshold
     #                                        )([bboxes, classification, rotation, translation])
 
-    efficientgrasp_prediction = models.Model(inputs = [image_input], outputs = [grasp_regression], name = 'efficientgrasp_prediction')
+    efficientgrasp_prediction = models.Model(inputs = [image_input], outputs = grasp_regression, name = 'efficientgrasp_prediction')
     
     if print_architecture:
         # print(len(backbone_model.layers))
