@@ -38,7 +38,7 @@ model, prediction_model, all_layers = build_EfficientGrasp(0,
 
 # load pretrained weights
 # model.load_weights('checkpoints/07_03_2021_06_07_18/cornell_finish.h5', by_name=True)
-model.load_weights('checkpoints/09_03_2021_18_44_01/cornell_finish.h5', by_name=True)
+model.load_weights('checkpoints/10_03_2021_04_00_38/cornell_best_grasp_accuracy.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE
@@ -46,7 +46,7 @@ print("Done!")
 
 ## Run on train set
 dataset = '/home/aby/Workspace/MTP/Datasets/Cornell/archive'
-with open(dataset+'/train.txt', 'r') as filehandle:
+with open(dataset+'/valid.txt', 'r') as filehandle:
     train_data = json.load(filehandle)
 
 from dataset_processing.cornell_data import CornellDataset
