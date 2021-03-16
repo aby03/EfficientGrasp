@@ -61,6 +61,8 @@ test_generator = CornellDataset(
 
 
 for i, [X, Y] in enumerate(test_generator):
+    X_rgb = np.uint8(X[1])
+    X = X[0]
     X = np.float32(X)
     gtbbs = Y
     test_out = model.predict(X)
@@ -143,17 +145,13 @@ for i, [X, Y] in enumerate(test_generator):
     plt.subplot(2, 3, 5)
     plt.imshow(maps_64[:,:,4])
     plt.subplot(2, 3, 6)
-    plt.imshow(X[0,:,:,:])
+    plt.imshow(X_rgb[0,:,:,:])
     plt.show()
-
-    # print(model.get_layer('regression_c').output)
-
-    # Plot maps
 
     # Plot Grasp
     fig = plt.figure()
     ax = fig.add_axes([0,0,1,1])
-    ax.imshow(X[0,:,:,:])
+    ax.imshow(X_rgb[0,:,:,:])
     pred_grasp.plot(ax, 'red')
     gtbbs.plot(ax, 0.8)
     plt.show()

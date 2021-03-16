@@ -107,6 +107,27 @@ class CornellDataset(Sequence):
             # rgd_img.img = rgd_img.img.transpose((2, 0, 1))
         return rgd_img.img, scale
 
+    def get_rgb(self, idx, rot=0, zoom=1.0, normalise=True):
+        rgd_img = image.Image.from_file(self.dataset+self.rgd_files[idx].replace('z.png','r.png'))
+        center, left, top = self._get_crop_attrs(idx)
+        rgd_img.rotate(rot, center)
+        rgd_img.crop((top, left), (min(480, top + self.output_size), min(640, left + self.output_size)))
+        rgd_img.zoom(zoom)
+        rgd_img.resize((self.output_size, self.output_size))
+        if normalise:
+            rgd_img.normalise()
+            # rgd_img.img = rgd_img.img.transpose((2, 0, 1))
+        return rgd_img.img
+
+    def load_custom_image(filename, output_size=512, normalise=True):
+        rgd_img = image.Image.from_file(filename)
+        rgd_img.resize((output_size, output_size))
+        rgd_img.zoom(0.75)
+        if normalise:
+            rgd_img.normalise()
+            # rgd_img.img = rgd_img.img.transpose((2, 0, 1))
+        return rgd_img.img
+
     def __getitem__(self, index):
         'Generate one batch of data'
         # Generate indexes of the batch
@@ -235,7 +256,12 @@ class CornellDataset(Sequence):
         if not self.run_test:
             return X, np.asarray(y_grasp)
         else:
-            return X, gtbb
+            # Return RGB image for displaying
+            X_rgb = np.empty((self.batch_size, self.output_size, self.output_size, self.n_channels))
+            for i in range(indexes.shape[0]):
+                X_rgb[i,] = self.get_rgb(indexes[i], 0, 0.875, normalise=False)
+
+            return [X, X_rgb], gtbb
 
 ### TESTING
 dataset = "/home/aby/Workspace/MTP/Datasets/Cornell/archive"

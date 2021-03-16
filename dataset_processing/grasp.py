@@ -354,7 +354,7 @@ class GraspRectangle:
         self.points[:,0] = np.round_(self.points[:,0] * factor[0]).astype(int)
         self.points[:,1] = np.round_(self.points[:,1] * factor[1]).astype(int)
 
-    def plot(self, ax, q, color=None):
+    def plot(self, ax, q=0.0, color='green'):
         """
         Plot grasping rectangle.
         :param ax: Existing matplotlib axis
@@ -363,8 +363,9 @@ class GraspRectangle:
         """
         points = np.vstack((self.points, self.points[0]))
         ax.plot(points[:, 1], points[:, 0], color=color)
-        ax.plot(self.center[1], self.center[0], 'o', color=color)
-        ax.legend(['score: {0:.2f}'.format(q)])
+        ax.plot(self.center[1], self.center[0], 'o', color=color, label='_nolegend_')
+        ax.legend(['Red box: Predicted Grasp', 'Green box: Labelled Grasps'])
+        # ax.legend(['score: {0:.2f}'.format(q)])
 
     def zoom(self, factor, center):
         """
