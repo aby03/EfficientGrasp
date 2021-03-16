@@ -115,11 +115,10 @@ def main(args = None):
         for i in range(1, [227, 329, 329, 374, 464, 566, 656][args.phi]):
             model.layers[i].trainable = False
 
-    mse = tf.keras.losses.MeanSquaredError()
+    # mse = tf.keras.losses.MeanSquaredError()
     
     # compile model    
     # Default Adam optimizer
-    # model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001), 
     model.compile(optimizer=Adam(lr = args.lr, clipnorm = 0.001),
                   loss={'regression': grasp_loss_bt(args.batch_size)})
                 #   loss={'regression': mse})
@@ -264,16 +263,16 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
                                                      mode = mode)
         callbacks.append(checkpoint)
 
-    # callbacks.append(keras.callbacks.ReduceLROnPlateau(
-    #     monitor    = 'loss',
-    #     factor     = 0.5,
-    #     patience   = 50,
-    #     verbose    = 1,
-    #     mode       = 'min',
-    #     min_delta  = 0.0001,
-    #     cooldown   = 0,
-    #     min_lr     = 1e-5
-    # ))
+    callbacks.append(keras.callbacks.ReduceLROnPlateau(
+        monitor    = 'loss',
+        factor     = 0.5,
+        patience   = 10,
+        verbose    = 1,
+        mode       = 'min',
+        min_delta  = 0.0001,
+        cooldown   = 0,
+        min_lr     = 1e-5
+    ))
 
     return callbacks
 

@@ -135,14 +135,15 @@ def get_scaled_parameters(phi):
     #info tuples with scalable parameters
     image_sizes = (512, 640, 768, 896, 1024, 1280, 1408)
     # bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
-    bifpn_widths = (64, 88, 112, 160, 224, 288, 384)
+    bifpn_widths = (96, 88, 112, 160, 224, 288, 384)
     # bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     bifpn_depths = (3, 4, 5, 6, 7, 7, 8)
     # subnet_depths = (3, 3, 3, 4, 4, 4, 5)
     subnet_depths = (3, 3, 3, 4, 4, 4, 5)
-    subnet_width = (64, 88, 112, 160, 224, 288, 384)
+    subnet_width = (96, 88, 112, 160, 224, 288, 384)
     subnet_iteration_steps = (1, 1, 1, 2, 2, 2, 3)
-    num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
+    num_groups_gn = (16, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
+    # num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
     backbones = (EfficientNetB0,
                  EfficientNetB1,
                  EfficientNetB2,
@@ -355,12 +356,12 @@ def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn = Fal
        The depthwise separable convolution block
     """
     f1 = layers.SeparableConv2D(num_channels, kernel_size = kernel_size, strides = strides, padding = 'same', use_bias = True, name = f'{name}/conv')
-    f2 = GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{name}/bn')
+    f2 = GroupNormalization(groups=16, axis=-1, epsilon = EPSILON, name = f'{name}/bn')
     # return reduce(lambda f, g: lambda *args, **kwargs: f(*args, **kwargs), (f1, f2))
     return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
 
 class IterativeGraspSubNet(models.Model):
-    def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 1, freeze_bn = False, use_group_norm = True, num_groups_gn = None, **kwargs):
+    def __init__(self, width, depth, num_values, num_iteration_steps, num_anchors = 1, freeze_bn = False, use_group_norm = True, num_groups_gn = 16, **kwargs):
         super(IterativeGraspSubNet, self).__init__(**kwargs)
         self.width = width
         self.depth = depth
@@ -410,7 +411,7 @@ class IterativeGraspSubNet(models.Model):
         return outputs
 
 class GraspNet(models.Model):
-    def __init__(self, width, depth, num_iteration_steps, use_group_norm = True, num_groups_gn = 64, num_anchors = 1, freeze_bn = False, **kwargs):
+    def __init__(self, width, depth, num_iteration_steps, use_group_norm = True, num_groups_gn = 16, num_anchors = 1, freeze_bn = False, **kwargs):
         super(GraspNet, self).__init__(**kwargs)
         self.width = width
         self.depth = depth
@@ -418,7 +419,7 @@ class GraspNet(models.Model):
         self.num_iteration_steps = num_iteration_steps
         self.use_group_norm = use_group_norm
         self.num_groups_gn = num_groups_gn
-        self.num_values = 6 # x, y, sin_t, cos_t, h, w
+        self.num_values = 6 # y, x, sin_t, cos_t, h, w
         # self.num_values = 5 # x, y, tan_t, h, w
         channel_axis=-1
         options = {
@@ -434,7 +435,7 @@ class GraspNet(models.Model):
         }
         options.update(kernel_initializer)
         self.convs = [layers.SeparableConv2D(filters = self.width, name = f'{self.name}/box-{i}', **options) for i in range(self.depth)]
-        self.bns = [[GroupNormalization(groups=64, axis=-1, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
+        self.bns = [[GroupNormalization(groups=num_groups_gn, axis=-1, epsilon = EPSILON, name = f'{self.name}/box-{i}-bn-{j}') for j in range(3, 8)] for i in range(self.depth)]
         self.activation = layers.Lambda(lambda x: tf.nn.swish(x))
         
         self.initial_grasp = layers.SeparableConv2D(filters = self.num_anchors * self.num_values, name = f'{self.name}/grasp-init-predict', **options)

@@ -40,7 +40,7 @@ run_multiple = True
 if run_multiple:
     # Load list of images
     dataset = '/home/aby/Workspace/MTP/Datasets/Cornell/archive'
-    with open(dataset+'/valid.txt', 'r') as filehandle:
+    with open(dataset+'/test.txt', 'r') as filehandle:
         train_data = json.load(filehandle)
 
     # Visualization on Custom Images
