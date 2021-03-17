@@ -20,14 +20,14 @@
             "python": "/home/aby/miniconda3/envs/EfficientGrasp/bin/python",
             "args" : ["--phi", "0",
                       "--batch-size", "1",
-                      "--lr", "1e-4",
+                      "--lr", "5e-5",
                       "--epochs", "200",
                     //   "--no-snapshots",
                     //   "--no-evaluation",
                       "--gpu", "0",
-                      "--weights", "imagenet",
-                    //   "--start-epoch", "61",
-                    //   "--weights", "checkpoints/10_03_2021_03_37_43/cornell_best_grasp_accuracy.h5",
+                    //   "--weights", "imagenet",
+                      "--start-epoch", "125",
+                      "--weights", "checkpoints/17_03_2021_08_29_48/cornell_best_grasp_accuracy.h5",
                       "cornell", "/home/aby/Workspace/MTP/Datasets/Cornell/archive"]
         }       
     ]
