@@ -142,7 +142,7 @@ def get_scaled_parameters(phi):
     subnet_depths = (3, 3, 3, 4, 4, 4, 5)
     subnet_width = (96, 88, 112, 160, 224, 288, 384)
     subnet_iteration_steps = (1, 1, 1, 2, 2, 2, 3)
-    num_groups_gn = (16, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
+    num_groups_gn = (32, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
     # num_groups_gn = (4, 4, 7, 10, 14, 18, 24) #try to get 16 channels per group
     backbones = (EfficientNetB0,
                  EfficientNetB1,
