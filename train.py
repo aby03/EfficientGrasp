@@ -241,7 +241,8 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
             write_images = False,
             embeddings_freq = 0,
             embeddings_layer_names = None,
-            embeddings_metadata = None
+            embeddings_metadata = None,
+            profile_batch = '201,206'
         )
         callbacks.append(tensorboard_callback)
 
@@ -271,7 +272,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         mode       = 'min',
         min_delta  = 0.0001,
         cooldown   = 0,
-        min_lr     = 1e-6
+        min_lr     = 1e-8
     ))
 
     return callbacks
