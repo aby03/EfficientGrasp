@@ -271,7 +271,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         mode       = 'min',
         min_delta  = 0.0001,
         cooldown   = 0,
-        min_lr     = 1e-7
+        min_lr     = 1e-6
     ))
 
     return callbacks
