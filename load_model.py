@@ -38,7 +38,7 @@ model, prediction_model, all_layers = build_EfficientGrasp(0,
 
 # load pretrained weights
 # model.load_weights('checkpoints/07_03_2021_06_07_18/cornell_finish.h5', by_name=True)
-model.load_weights('checkpoints/10_03_2021_04_00_38/cornell_best_grasp_accuracy.h5', by_name=True)
+model.load_weights('checkpoints/20_03_2021_03_03_11/cornell_best_grasp_accuracy.h5', by_name=True)
 print("Done!")
 
 # ## TEST ON SINGLE IMAGE

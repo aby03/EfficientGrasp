@@ -6,7 +6,7 @@ import sys
 
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.optimizers import Adam, Adam_accumulate
+from tensorflow.keras.optimizers import Adam#, Adam_accumulate
 
 from model import build_EfficientGrasp
 # from model_split import build_EfficientGrasp
@@ -235,14 +235,14 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     if tensorboard_dir:
         tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir = tensorboard_dir,
-            histogram_freq = 0,
+            histogram_freq = 1,
             write_graph = True,
             write_grads = False,
             write_images = False,
             embeddings_freq = 0,
             embeddings_layer_names = None,
             embeddings_metadata = None,
-            profile_batch = '201,206'
+            profile_batch = 5
         )
         callbacks.append(tensorboard_callback)
 
