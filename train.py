@@ -235,14 +235,14 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     if tensorboard_dir:
         tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir = tensorboard_dir,
-            histogram_freq = 1,
+            histogram_freq = 0,
             write_graph = True,
             write_grads = False,
             write_images = False,
             embeddings_freq = 0,
             embeddings_layer_names = None,
-            embeddings_metadata = None,
-            profile_batch = 5
+            embeddings_metadata = None
+            # profile_batch = 5
         )
         callbacks.append(tensorboard_callback)
 
@@ -272,7 +272,7 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
         mode       = 'min',
         min_delta  = 0.0001,
         cooldown   = 0,
-        min_lr     = 1e-8
+        min_lr     = 1e-7
     ))
 
     return callbacks
@@ -296,9 +296,9 @@ def create_generators(args):
         dataset = args.cornell_path
 
         # open output file for reading
-        with open(dataset+'/train.txt', 'r') as filehandle:
+        with open(dataset+'/train_1.txt', 'r') as filehandle:
             train_data = json.load(filehandle)
-        with open(dataset+'/valid.txt', 'r') as filehandle:
+        with open(dataset+'/valid_1.txt', 'r') as filehandle:
             valid_data = json.load(filehandle)
         
         # # Shuffle the list of image paths
