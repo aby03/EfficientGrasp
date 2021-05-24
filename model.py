@@ -59,11 +59,12 @@ def build_EfficientGrasp(phi,
     
     #build EfficientNet backbone
     backbone_feature_maps = backbone_class(input_tensor = image_input, freeze_bn = freeze_bn)
-    # print('FEATURES: ', backbone_feature_maps[0].shape)
-    # print('FEATURES: ', backbone_feature_maps[1].shape)
-    # print('FEATURES: ', backbone_feature_maps[2].shape)
-    # print('FEATURES: ', backbone_feature_maps[3].shape)
-    # print('FEATURES: ', backbone_feature_maps[4].shape)
+    print(type(EfficientNetB0))
+    print('FEATURES: ', backbone_feature_maps[0].shape)
+    print('FEATURES: ', backbone_feature_maps[1].shape)
+    print('FEATURES: ', backbone_feature_maps[2].shape)
+    print('FEATURES: ', backbone_feature_maps[3].shape)
+    print('FEATURES: ', backbone_feature_maps[4].shape)
     # # Debug
     # backbone_model = models.Model(inputs = [image_input], outputs = [backbone_feature_maps], name = 'effnetb0')
 
@@ -404,7 +405,7 @@ class IterativeGraspSubNet(models.Model):
         iter_step_py = kwargs["iter_step_py"]
         for i in range(self.depth):
             feature = self.convs[i](feature)
-            feature = self.norm_layer[iter_step_py][i][level_py](feature)
+            feature = self.norm_layer[iter_step_py][i][level](feature)
             feature = self.activation(feature)
         outputs = self.head(feature)
         

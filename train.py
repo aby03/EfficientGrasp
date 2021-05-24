@@ -61,7 +61,7 @@ def parse_args(args):
 
 def main(args = None):
     """
-    Train an EfficientPose model.
+    Train an EfficientGrasp model.
 
     Args:
         args: parseargs object containing configuration for the training procedure.
@@ -158,7 +158,7 @@ def main(args = None):
     # exit()
 
 
-    TEST = False
+    TEST = True
     if TEST:
         # start testing
         model.fit_generator(
@@ -235,14 +235,14 @@ def create_callbacks(training_model, prediction_model, validation_generator, arg
     if tensorboard_dir:
         tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir = tensorboard_dir,
-            histogram_freq = 0,
+            histogram_freq = 1,
             write_graph = True,
             write_grads = False,
             write_images = False,
             embeddings_freq = 0,
             embeddings_layer_names = None,
-            embeddings_metadata = None
-            # profile_batch = 5
+            embeddings_metadata = None,
+            profile_batch = 2
         )
         callbacks.append(tensorboard_callback)
 

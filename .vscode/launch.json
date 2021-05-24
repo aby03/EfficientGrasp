@@ -22,7 +22,7 @@
                       "--batch-size", "1",
                       "--lr", "1e-4",
                       "--epochs", "200",
-                    //   "--no-snapshots",
+                      "--no-snapshots",
                     //   "--no-evaluation",
                       "--gpu", "0",
                       "--weights", "imagenet",
@@ -40,7 +40,7 @@
             "args" : ["--phi", "0",
                       "--batch-size", "1",
                       "--lr", "1e-4",
-                      "--epochs", "300",
+                      "--epochs", "200",
                       "--no-snapshots",
                       "--no-evaluation",
                       "--gpu", "0",
@@ -51,4 +51,5 @@
         }
     ]
 }
+// python train.py --phi 0 --batch-size 1 --lr 1e-4 --weights imagenet cornell /home/aby/Workspace/MTP/Datasets/Cornell/archive
 // python train.py --phi 0 --batch-size 2 --lr 1e-7 --weights imagenet cornell /home/aby/Workspace/MTP/Datasets/Cornell/archive
